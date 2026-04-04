@@ -32,6 +32,47 @@ An open source, AI-native desktop email client. Built with Electron, React, Type
 
 Exo treats AI as a first-class citizen — not a bolted-on feature. Every email gets analyzed, prioritized, and optionally drafted before you even open it. The goal is zero cognitive load: open your inbox and everything is already handled or ready to send.
 
+## Fork Development Roadmap
+
+Maintainer note: update this section as implementation progresses. Keep `Status`, branch/worktree paths, and checklist boxes current so handoffs and PR prep stay accurate.
+
+| Stream | Branch | Worktree Path | Status | Scope Summary |
+| --- | --- | --- | --- | --- |
+| PR1: Codex backend + auth | `feature/pr1-codex-backend-auth` | `/home/erik/Development/mail-app-pr1-codex-backend-auth` | `Planned` | Add Codex-backed provider flow, auth/config wiring, backend integration surface, and regression-safe fallback behavior. |
+| PR2: OpenAI-compatible endpoint backend | `feature/pr2-openai-compatible-backend` | `/home/erik/Development/mail-app-pr2-openai-compatible-backend` | `Planned` | Add OpenAI-compatible endpoint provider with shared backend abstractions, model/config mapping, and interoperability with existing agent workflows. |
+
+### PR1: Codex backend + auth
+
+Test gate checklist:
+- [ ] `npm run test:unit`
+- [ ] `npm run test:integration`
+- [ ] `npm run lint`
+- [ ] `npx tsc --noEmit -p tsconfig.node.json`
+- [ ] `npx tsc --noEmit -p tsconfig.web.json`
+
+PR readiness checklist:
+- [ ] Scope is limited to Codex backend + auth changes.
+- [ ] New/changed env vars and auth prerequisites are documented.
+- [ ] Migration/backward-compat behavior is documented (if applicable).
+- [ ] Screenshots or short recording added for visible UI/auth flow changes.
+- [ ] PR description includes risk assessment and rollback notes.
+
+### PR2: OpenAI-compatible endpoint backend
+
+Test gate checklist:
+- [ ] `npm run test:unit`
+- [ ] `npm run test:integration`
+- [ ] `npm run lint`
+- [ ] `npx tsc --noEmit -p tsconfig.node.json`
+- [ ] `npx tsc --noEmit -p tsconfig.web.json`
+
+PR readiness checklist:
+- [ ] Scope is limited to OpenAI-compatible backend changes.
+- [ ] Endpoint/auth configuration and validation paths are documented.
+- [ ] Provider compatibility matrix (models/features) is updated.
+- [ ] Error handling/retry behavior for endpoint failures is verified.
+- [ ] PR description includes test evidence and known limitations.
+
 ## Getting Started 
 
 You can click the "Download .dmg" button above to download a Mac app that is ready for configuration. All you need to provide is Gmail API information (it has instructions) and an Anthropic API Key. If you're a developer, see the instructions at the bottom, or ask Claude Code to figure it out. 
