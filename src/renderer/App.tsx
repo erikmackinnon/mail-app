@@ -1087,7 +1087,8 @@ export default function App() {
             // Save sidebar tab — startAgentTask unconditionally sets it to "agent",
             // but background auto-drafts shouldn't steal focus from the user
             const prevTab = store.sidebarTab;
-            store.startAgentTask(taskId, emailId, ["claude"], "", {
+            const inferredProviderId = event.providerId ?? "claude";
+            store.startAgentTask(taskId, emailId, [inferredProviderId], "", {
               accountId: email.accountId || "",
               currentEmailId: emailId,
               currentThreadId: email.threadId,
@@ -1295,11 +1296,12 @@ export default function App() {
           hasCredentials: boolean;
           hasTokens: boolean;
           hasAnthropicKey: boolean;
+          hasLlmAuth: boolean;
         }>,
       ) => {
         if (result.success) {
           // Credentials are always bundled at build time — only check API key and tokens
-          setNeedsSetup(!result.data.hasAnthropicKey || !result.data.hasTokens);
+          setNeedsSetup(!result.data.hasLlmAuth || !result.data.hasTokens);
         } else {
           setNeedsSetup(true);
         }

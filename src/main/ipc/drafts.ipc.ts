@@ -1,5 +1,5 @@
 import { ipcMain } from "electron";
-import { createMessage } from "../services/anthropic-service";
+import { createMessage } from "../services/llm-service";
 import {
   getEmail,
   deleteDraft,
@@ -21,6 +21,7 @@ import { UNTRUSTED_DATA_INSTRUCTION, wrapUntrustedEmail } from "../../shared/pro
 import type { IpcResponse } from "../../shared/types";
 import { DEMO_INBOX_EMAILS } from "../demo/fake-inbox";
 import { createLogger } from "../services/logger";
+import { getDefaultAgentProviderId } from "../services/llm-backend";
 
 const log = createLogger("drafts-ipc");
 
@@ -225,7 +226,7 @@ FORMATTING: Write plain text paragraphs separated by blank lines. Do NOT use HTM
         prefetchService.trackManualAgentDraft(emailId, taskId);
 
         // Launch agent — events auto-stream to renderer via agent:event IPC
-        await agentCoordinator.runAgent(taskId, ["claude"], prompt, context);
+        await agentCoordinator.runAgent(taskId, [getDefaultAgentProviderId()], prompt, context);
 
         // Link draft to agent task when it completes (async, don't block response)
         agentCoordinator

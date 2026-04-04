@@ -2,14 +2,16 @@ import { ipcMain } from "electron";
 import { execFile, execFileSync } from "child_process";
 import { agentCoordinator } from "../agents/agent-coordinator";
 import { authenticateProvider } from "../agents/private-providers-main";
-import { getModelIdForFeature } from "./settings.ipc";
+import { getLlmBackend, getModelIdForFeature } from "./settings.ipc";
 import { getAgentTrace } from "../db";
+import { getDefaultAgentProviderIdForBackend } from "../services/llm-backend";
 import type { AgentContext } from "../agents/types";
 import type { ScopedAgentEvent } from "../agents/types";
 import type { IpcResponse } from "../../shared/types";
 
 /** Check if `claude` CLI is available on PATH. Cached after first check. */
 let claudeCliAvailable: boolean | null = null;
+let codexCliAvailable: boolean | null = null;
 function isClaudeCliAvailable(): boolean {
   if (claudeCliAvailable !== null) return claudeCliAvailable;
   try {
@@ -25,6 +27,23 @@ function isClaudeCliAvailable(): boolean {
     claudeCliAvailable = false;
   }
   return claudeCliAvailable;
+}
+
+function isCodexCliAvailable(): boolean {
+  if (codexCliAvailable !== null) return codexCliAvailable;
+  try {
+    const env = { ...process.env };
+    delete env.CLAUDECODE;
+    execFileSync("codex", ["--version"], {
+      timeout: 5000,
+      stdio: "ignore",
+      env,
+    });
+    codexCliAvailable = true;
+  } catch {
+    codexCliAvailable = false;
+  }
+  return codexCliAvailable;
 }
 
 export function registerAgentIpc(): void {
@@ -46,7 +65,8 @@ export function registerAgentIpc(): void {
     ): Promise<IpcResponse<{ taskId: string }>> => {
       try {
         // Interactive agent tasks use the agentChat model (defaults to opus)
-        const modelOverride = getModelIdForFeature("agentChat");
+        const modelOverride =
+          getLlmBackend() === "anthropic" ? getModelIdForFeature("agentChat") : undefined;
         await agentCoordinator.runAgent(taskId, providerIds, prompt, context, modelOverride);
         return { success: true, data: { taskId } };
       } catch (error) {
@@ -102,6 +122,21 @@ export function registerAgentIpc(): void {
       };
     }
   });
+
+  ipcMain.handle(
+    "agent:default-provider",
+    async (): Promise<IpcResponse<{ providerId: "claude" | "codex" }>> => {
+      try {
+        const providerId = getDefaultAgentProviderIdForBackend(getLlmBackend());
+        return { success: true, data: { providerId } };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    },
+  );
 
   ipcMain.handle(
     "agent:authenticate",
@@ -244,6 +279,84 @@ export function registerAgentIpc(): void {
             "claude",
             ["auth", "login"],
             { env, timeout: 120000 },
+            (error, _stdout, stderr) => {
+              if (error) {
+                resolve({ success: false, error: stderr?.trim() || error.message });
+              } else {
+                resolve({ success: true });
+              }
+            },
+          );
+          child.stdin?.end();
+        });
+        return { success: true, data: result };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    },
+  );
+
+  // Check if Codex CLI is available and whether the user is logged in.
+  ipcMain.handle(
+    "agent:codex-auth-status",
+    async (): Promise<
+      IpcResponse<{
+        cliAvailable: boolean;
+        authenticated: boolean;
+        details?: string;
+      }>
+    > => {
+      try {
+        if (!isCodexCliAvailable()) {
+          return { success: true, data: { cliAvailable: false, authenticated: false } };
+        }
+
+        const result = await new Promise<{
+          cliAvailable: boolean;
+          authenticated: boolean;
+          details?: string;
+        }>((resolve) => {
+          const env = { ...process.env };
+          delete env.CLAUDECODE;
+          execFile("codex", ["login", "status"], { env, timeout: 10_000 }, (error, stdout) => {
+            if (error) {
+              resolve({ cliAvailable: true, authenticated: false });
+              return;
+            }
+            const details = stdout.trim();
+            resolve({
+              cliAvailable: true,
+              authenticated: details.toLowerCase().startsWith("logged in"),
+              details: details || undefined,
+            });
+          });
+        });
+
+        return { success: true, data: result };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
+      }
+    },
+  );
+
+  // Launch Codex login flow.
+  ipcMain.handle(
+    "agent:codex-login",
+    async (): Promise<IpcResponse<{ success: boolean; error?: string }>> => {
+      try {
+        const result = await new Promise<{ success: boolean; error?: string }>((resolve) => {
+          const env = { ...process.env };
+          delete env.CLAUDECODE;
+          const child = execFile(
+            "codex",
+            ["login"],
+            { env, timeout: 180_000 },
             (error, _stdout, stderr) => {
               if (error) {
                 resolve({ success: false, error: stderr?.trim() || error.message });

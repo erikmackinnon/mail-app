@@ -19,6 +19,7 @@ import type { AgentContext } from "../agents/types";
 import { DEFAULT_AGENT_DRAFTER_PROMPT } from "../../shared/types";
 import type { Email, DashboardEmail } from "../../shared/types";
 import { createLogger } from "./logger";
+import { getDefaultAgentProviderId } from "./llm-backend";
 
 const log = createLogger("prefetch");
 
@@ -1115,7 +1116,7 @@ When you see emails in a thread where ${eaName} is coordinating scheduling with 
       this.activeAgentTaskIds.set(emailId, taskId);
 
       // Launch the agent and await its actual completion (not just startup)
-      await agentCoordinator.runAgent(taskId, ["claude"], prompt, context);
+      await agentCoordinator.runAgent(taskId, [getDefaultAgentProviderId()], prompt, context);
       await agentCoordinator.waitForCompletion(taskId);
 
       // Link the draft record to the agent task so the trace can be loaded later

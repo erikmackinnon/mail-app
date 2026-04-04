@@ -757,7 +757,7 @@ export const AgentTabContent = memo(function AgentTabContent({ emailId }: { emai
         startAgentTask(
           taskId,
           emailId,
-          ["claude"],
+          task?.providerIds ?? ["claude"],
           task?.prompt || "",
           task?.context || {
             accountId: email?.accountId || "",

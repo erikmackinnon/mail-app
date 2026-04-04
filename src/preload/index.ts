@@ -875,12 +875,15 @@ const api = {
     confirm: (toolCallId: string, approved: boolean): Promise<unknown> =>
       ipcRenderer.invoke("agent:confirm", { toolCallId, approved }),
     providers: (): Promise<unknown> => ipcRenderer.invoke("agent:providers"),
+    defaultProvider: (): Promise<unknown> => ipcRenderer.invoke("agent:default-provider"),
     authenticate: (providerId: string): Promise<unknown> =>
       ipcRenderer.invoke("agent:authenticate", { providerId }),
     getTrace: (taskId: string): Promise<unknown> =>
       ipcRenderer.invoke("agent:get-trace", { taskId }),
     claudeAuthStatus: (): Promise<unknown> => ipcRenderer.invoke("agent:claude-auth-status"),
     claudeLogin: (): Promise<unknown> => ipcRenderer.invoke("agent:claude-login"),
+    codexAuthStatus: (): Promise<unknown> => ipcRenderer.invoke("agent:codex-auth-status"),
+    codexLogin: (): Promise<unknown> => ipcRenderer.invoke("agent:codex-login"),
     onEvent: (callback: (data: unknown) => void): void => {
       ipcRenderer.on("agent:event", (_: Electron.IpcRendererEvent, data: unknown) =>
         callback(data),

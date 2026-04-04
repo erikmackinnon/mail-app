@@ -4,6 +4,7 @@ import {
   type Config,
   type EAConfig,
   type IpcResponse,
+  type LlmBackend,
   type ThemePreference,
   type ModelConfig,
   type ModelTier,
@@ -30,6 +31,7 @@ import {
 } from "../db";
 import { getEnrichmentBySender } from "../extensions/enrichment-store";
 import { autoUpdateService } from "../services/auto-updater";
+import { normalizeLlmBackend } from "../services/llm-backend";
 
 import { getDataDir } from "../data-dir";
 import { createLogger } from "../services/logger";
@@ -49,6 +51,7 @@ function getStore(): Store<{ config: Config }> {
       defaults: {
         config: {
           maxEmails: 50,
+          llmBackend: "anthropic",
           model: "claude-sonnet-4-20250514",
           modelConfig: DEFAULT_MODEL_CONFIG,
           dryRun: false,
@@ -77,6 +80,7 @@ function getStore(): Store<{ config: Config }> {
 
 export function getConfig(): Config {
   const config = getStore().get("config");
+  config.llmBackend = normalizeLlmBackend(config.llmBackend);
 
   // Migrate removed density values to "compact"
   if (config.inboxDensity && !["default", "compact"].includes(config.inboxDensity)) {
@@ -114,6 +118,10 @@ export function getConfig(): Config {
   }
 
   return config;
+}
+
+export function getLlmBackend(): LlmBackend {
+  return getConfig().llmBackend;
 }
 
 /** Get the resolved modelConfig, falling back to defaults for any missing keys. */
@@ -218,6 +226,10 @@ export function registerSettingsIpc(): void {
         });
       }
 
+      if ("llmBackend" in config) {
+        process.env.EXO_LLM_BACKEND = normalizeLlmBackend(newConfig.llmBackend);
+      }
+
       // Propagate agent browser config changes
       if ("agentBrowser" in config) {
         const browser = newConfig.agentBrowser;
@@ -272,7 +284,7 @@ export function registerSettingsIpc(): void {
 
       // Reset cached analyzer/service instances when model config or API key changes,
       // since they hold Anthropic client instances that capture the key at construction.
-      if ("modelConfig" in config || "anthropicApiKey" in config) {
+      if ("modelConfig" in config || "anthropicApiKey" in config || "llmBackend" in config) {
         resetClient();
         resetAnalyzer();
         resetArchiveReadyAnalyzer();

@@ -306,6 +306,9 @@ export const CliToolConfigSchema = z.object({
 });
 export type CliToolConfig = z.infer<typeof CliToolConfigSchema>;
 
+export const LlmBackendSchema = z.enum(["anthropic", "codex"]);
+export type LlmBackend = z.infer<typeof LlmBackendSchema>;
+
 // AI model tiers — user-facing names mapped to specific model IDs
 export const MODEL_TIERS = ["haiku", "sonnet", "opus"] as const;
 export const ModelTierSchema = z.enum(["haiku", "sonnet", "opus"]);
@@ -361,6 +364,7 @@ export function resolveModelId(tier: ModelTier): string {
 // Config schema
 export const ConfigSchema = z.object({
   maxEmails: z.number().default(50),
+  llmBackend: LlmBackendSchema.default("anthropic"),
   // Legacy field — no longer drives any AI calls. All features now use modelConfig
   // via getModelIdForFeature(). Kept in the schema so existing config files parse without error.
   model: z.string().default("claude-sonnet-4-20250514"),

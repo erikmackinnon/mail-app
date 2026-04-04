@@ -1,10 +1,12 @@
 import { ipcMain } from "electron";
+import { execFileSync } from "child_process";
 import { GmailClient } from "../services/gmail-client";
 import { saveEmail, getEmailIds, getInboxEmails, getEmail, saveAccount, getAccounts } from "../db";
 import { getConfig } from "./settings.ipc";
 import type { IpcResponse, DashboardEmail } from "../../shared/types";
 import { DEMO_INBOX_EMAILS, DEMO_EXPECTED_ANALYSIS } from "../demo/fake-inbox";
 import { createLogger } from "../services/logger";
+import { normalizeLlmBackend } from "../services/llm-backend";
 
 const log = createLogger("gmail-ipc");
 
@@ -13,6 +15,21 @@ const isDemoMode = process.env.EXO_DEMO_MODE === "true";
 const useFakeData = isTestMode || isDemoMode;
 
 const gmailClients = new Map<string, GmailClient>();
+
+function hasCodexCliAuth(): boolean {
+  try {
+    const env = { ...process.env };
+    delete env.CLAUDECODE;
+    const stdout = execFileSync("codex", ["login", "status"], {
+      timeout: 7000,
+      encoding: "utf-8",
+      env,
+    });
+    return stdout.trim().toLowerCase().startsWith("logged in");
+  } catch {
+    return false;
+  }
+}
 
 function resolveTargetAccountId(accountId?: string): string {
   const trimmedAccountId = accountId?.trim();
@@ -51,7 +68,13 @@ export function registerGmailIpc(): void {
   ipcMain.handle(
     "gmail:check-auth",
     async (): Promise<
-      IpcResponse<{ hasCredentials: boolean; hasTokens: boolean; hasAnthropicKey: boolean }>
+      IpcResponse<{
+        hasCredentials: boolean;
+        hasTokens: boolean;
+        hasAnthropicKey: boolean;
+        hasLlmAuth: boolean;
+        llmBackend: "anthropic" | "codex";
+      }>
     > => {
       // In demo/test mode, always return authenticated
       if (useFakeData) {
@@ -61,19 +84,26 @@ export function registerGmailIpc(): void {
             hasCredentials: true,
             hasTokens: true,
             hasAnthropicKey: true,
+            hasLlmAuth: true,
+            llmBackend: "anthropic",
           },
         };
       }
 
       try {
         const client = new GmailClient();
-        const hasAnthropicKey = !!(process.env.ANTHROPIC_API_KEY || getConfig().anthropicApiKey);
+        const config = getConfig();
+        const llmBackend = normalizeLlmBackend(config.llmBackend);
+        const hasAnthropicKey = !!(process.env.ANTHROPIC_API_KEY || config.anthropicApiKey);
+        const hasLlmAuth = llmBackend === "codex" ? hasCodexCliAuth() : hasAnthropicKey;
         return {
           success: true,
           data: {
             hasCredentials: client.hasCredentials(),
             hasTokens: client.hasTokens(),
             hasAnthropicKey,
+            hasLlmAuth,
+            llmBackend,
           },
         };
       } catch (error) {

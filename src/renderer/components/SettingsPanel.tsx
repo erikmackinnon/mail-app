@@ -18,6 +18,7 @@ import {
   type ModelConfig,
   type ModelTier,
   type CliToolConfig,
+  type LlmBackend,
 } from "../../shared/types";
 import { useAppStore, type Account, type SettingsTab } from "../store";
 import { reconfigurePostHog, trackEvent } from "../services/posthog";
@@ -111,6 +112,8 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   const [eaError, setEaError] = useState<string | null>(null);
 
   // Agent authentication state
+  const [llmBackend, setLlmBackend] = useState<LlmBackend>("anthropic");
+  const [isSavingBackend, setIsSavingBackend] = useState(false);
   const [anthropicApiKey, setAnthropicApiKey] = useState("");
   const [isSavingApiKey, setIsSavingApiKey] = useState(false);
   const [apiKeySaved, setApiKeySaved] = useState(false);
@@ -119,6 +122,11 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     "checking" | "authenticated" | "not_authenticated"
   >("checking");
   const [claudeAuthEmail, setClaudeAuthEmail] = useState<string | undefined>();
+  const [codexCliAvailable, setCodexCliAvailable] = useState(false);
+  const [codexAuthStatus, setCodexAuthStatus] = useState<
+    "checking" | "authenticated" | "not_authenticated"
+  >("checking");
+  const [codexAuthDetails, setCodexAuthDetails] = useState<string | undefined>();
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
@@ -221,6 +229,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     if (generalConfig) {
       setEnableSenderLookup(generalConfig.enableSenderLookup ?? true);
       setModelConfig({ ...DEFAULT_MODEL_CONFIG, ...generalConfig.modelConfig });
+      setLlmBackend(generalConfig.llmBackend ?? "anthropic");
       setGithubToken(generalConfig.githubToken ?? "");
       setAllowPrereleaseUpdates(generalConfig.allowPrereleaseUpdates ?? false);
       setAnthropicApiKey(generalConfig.anthropicApiKey ?? "");
@@ -282,6 +291,31 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   // Check Claude CLI availability and auth status when Agents tab is shown
   useEffect(() => {
     if (activeTab !== "agents") return;
+    if (llmBackend === "codex") {
+      setCodexAuthStatus("checking");
+      (
+        window.api.agent.codexAuthStatus() as Promise<{
+          success: boolean;
+          data?: { cliAvailable: boolean; authenticated: boolean; details?: string };
+        }>
+      )
+        .then((result) => {
+          if (result.success && result.data) {
+            setCodexCliAvailable(result.data.cliAvailable);
+            setCodexAuthStatus(result.data.authenticated ? "authenticated" : "not_authenticated");
+            setCodexAuthDetails(result.data.details);
+          } else {
+            setCodexCliAvailable(false);
+            setCodexAuthStatus("not_authenticated");
+          }
+        })
+        .catch(() => {
+          setCodexCliAvailable(false);
+          setCodexAuthStatus("not_authenticated");
+        });
+      return;
+    }
+
     setClaudeAuthStatus("checking");
     (
       window.api.agent.claudeAuthStatus() as Promise<{
@@ -303,7 +337,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
         setClaudeCliAvailable(false);
         setClaudeAuthStatus("not_authenticated");
       });
-  }, [activeTab]);
+  }, [activeTab, llmBackend]);
 
   // Fetch calendar list when Calendar tab is shown
   useEffect(() => {
@@ -582,6 +616,46 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
       setLoginError(err instanceof Error ? err.message : "Login failed");
     } finally {
       setIsLoggingIn(false);
+    }
+  };
+
+  const handleCodexLogin = async () => {
+    setIsLoggingIn(true);
+    setLoginError(null);
+    try {
+      const result = (await window.api.agent.codexLogin()) as {
+        success: boolean;
+        data?: { success: boolean; error?: string };
+        error?: string;
+      };
+      if (result.success && result.data?.success) {
+        const statusResult = (await window.api.agent.codexAuthStatus()) as {
+          success: boolean;
+          data?: { authenticated: boolean; details?: string };
+        };
+        if (statusResult.success && statusResult.data) {
+          setCodexAuthStatus(
+            statusResult.data.authenticated ? "authenticated" : "not_authenticated",
+          );
+          setCodexAuthDetails(statusResult.data.details);
+        }
+      } else {
+        setLoginError(result.data?.error || result.error || "Login failed or was cancelled");
+      }
+    } catch (err) {
+      setLoginError(err instanceof Error ? err.message : "Login failed");
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleSaveBackend = async () => {
+    setIsSavingBackend(true);
+    try {
+      await window.api.settings.set({ llmBackend });
+      queryClient.invalidateQueries({ queryKey: ["general-config"] });
+    } finally {
+      setIsSavingBackend(false);
     }
   };
 
@@ -2400,8 +2474,35 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 Authentication
               </h4>
 
-              {/* Anthropic API Key */}
               <div className="mb-6">
+                <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  LLM Backend
+                </h5>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                  Choose which backend powers core AI features and default agent runs.
+                </p>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={llmBackend}
+                    onChange={(e) => setLlmBackend(e.target.value as LlmBackend)}
+                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="anthropic">Anthropic</option>
+                    <option value="codex">Codex</option>
+                  </select>
+                  <button
+                    onClick={handleSaveBackend}
+                    disabled={isSavingBackend}
+                    className="px-4 py-2 bg-blue-600 dark:bg-blue-500 text-white text-sm font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 disabled:opacity-50 transition-colors"
+                  >
+                    {isSavingBackend ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Anthropic API Key */}
+              {llmBackend === "anthropic" && (
+                <div className="mb-6">
                 <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Anthropic API Key
                 </h5>
@@ -2428,10 +2529,11 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                     {isSavingApiKey ? "Saving..." : apiKeySaved ? "Saved" : "Save"}
                   </button>
                 </div>
-              </div>
+                </div>
+              )}
 
               {/* Claude Account (OAuth) — only shown when claude CLI is available */}
-              {claudeCliAvailable && (
+              {llmBackend === "anthropic" && claudeCliAvailable && (
                 <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
                   <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Claude Agent
@@ -2516,6 +2618,47 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                     An API key above also enables the agent. Claude Account login is only needed if
                     you don't have an API key.
                   </p>
+                </div>
+              )}
+
+              {llmBackend === "codex" && (
+                <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Codex Agent
+                  </h5>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                    The Codex backend uses your local Codex CLI login session.
+                  </p>
+
+                  <div className="flex items-center gap-3 mb-3">
+                    {codexAuthStatus === "checking" && (
+                      <span className="text-sm text-gray-500 dark:text-gray-400">Checking...</span>
+                    )}
+                    {codexAuthStatus === "authenticated" && (
+                      <span className="text-sm text-green-700 dark:text-green-400">
+                        Logged in{codexAuthDetails ? ` (${codexAuthDetails})` : ""}
+                      </span>
+                    )}
+                    {codexAuthStatus === "not_authenticated" && (
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                        {codexCliAvailable ? "Not logged in" : "Codex CLI not found"}
+                      </span>
+                    )}
+                  </div>
+
+                  {codexCliAvailable && (
+                    <button
+                      onClick={handleCodexLogin}
+                      disabled={isLoggingIn}
+                      className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors"
+                    >
+                      {isLoggingIn ? "Logging in..." : "Login with Codex"}
+                    </button>
+                  )}
+
+                  {loginError && (
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-2">{loginError}</p>
+                  )}
                 </div>
               )}
             </div>
