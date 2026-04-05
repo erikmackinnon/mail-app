@@ -4,6 +4,7 @@ import {
   CodexAgentProvider,
   _buildCodexAgentExecArgs,
   _buildCodexAgentPrompt,
+  _hydrateCodexPromptContext,
 } from "../../src/main/agents/providers/codex-agent-provider";
 import type { AgentRunParams } from "../../src/main/agents/types";
 import type { CodexExecCapabilities } from "../../src/main/utils/codex-cli";
@@ -154,6 +155,119 @@ test.describe("CodexAgentProvider", () => {
     expect(third.done).toBe(true);
     if (third.done) {
       expect(third.value.state).toBe("cancelled");
+    }
+  });
+
+  test("hydrates current email/thread/draft context before running prompt", async () => {
+    const toolCalls: string[] = [];
+    let capturedPrompt = "";
+    const params = makeRunParams("task-hydration");
+    params.context.currentThreadId = "thread-1";
+    params.context.currentDraftId = "draft-1";
+    params.toolExecutor = async (toolName) => {
+      toolCalls.push(toolName);
+      if (toolName === "read_email") {
+        return {
+          id: "email-1",
+          subject: "Quarterly update",
+          from: "Alex <alex@example.com>",
+          body: "Hi team, here is the detailed quarterly update with action items.",
+        };
+      }
+      if (toolName === "read_thread") {
+        return [
+          {
+            id: "email-0",
+            subject: "Kickoff",
+            from: "Jordan <jordan@example.com>",
+            body: "Starting thread context.",
+          },
+          {
+            id: "email-1",
+            subject: "Quarterly update",
+            from: "Alex <alex@example.com>",
+            body: "Detailed context in this message.",
+          },
+        ];
+      }
+      if (toolName === "read_draft") {
+        return {
+          id: "draft-1",
+          to: ["alex@example.com"],
+          subject: "Re: Quarterly update",
+          bodyText: "Thanks Alex, I reviewed this and have one question.",
+        };
+      }
+      throw new Error(`unexpected tool: ${toolName}`);
+    };
+
+    const provider = new CodexAgentProvider(
+      { model: "claude-sonnet-4-20250514" },
+      {
+        isCliAvailable: () => true,
+        runPrompt: async ({ prompt }) => {
+          capturedPrompt = prompt;
+          return "Hydrated response";
+        },
+      },
+    );
+
+    const gen = provider.run(params);
+    for (;;) {
+      const next = await gen.next();
+      if (next.done) {
+        expect(next.value.state).toBe("completed");
+        break;
+      }
+    }
+
+    expect(toolCalls.sort()).toEqual(["read_draft", "read_email", "read_thread"]);
+    expect(capturedPrompt).toContain("CURRENT EMAIL (hydrated via read_email):");
+    expect(capturedPrompt).toContain("Detailed context in this message.");
+    expect(capturedPrompt).toContain("THREAD CONTEXT (hydrated via read_thread):");
+    expect(capturedPrompt).toContain("CURRENT DRAFT (hydrated via read_draft):");
+    expect(capturedPrompt).toContain("Thanks Alex, I reviewed this and have one question.");
+  });
+
+  test("does not throw when hydration tool calls fail", async () => {
+    const params = makeRunParams("task-hydration-fail");
+    params.context.currentThreadId = "thread-1";
+    params.toolExecutor = async (toolName) => {
+      if (toolName === "read_email") {
+        return {
+          id: "email-1",
+          subject: "Quarterly update",
+          from: "Alex <alex@example.com>",
+          body: "fallback context",
+        };
+      }
+      if (toolName === "read_thread") {
+        throw new Error("db unavailable");
+      }
+      return {};
+    };
+
+    await expect(_hydrateCodexPromptContext(params)).resolves.toMatchObject({
+      email: {
+        id: "email-1",
+      },
+    });
+
+    const provider = new CodexAgentProvider(
+      { model: "claude-sonnet-4-20250514" },
+      {
+        isCliAvailable: () => true,
+        runPrompt: async () => "Still completes",
+      },
+    );
+
+    const gen = provider.run(params);
+    for (;;) {
+      const next = await gen.next();
+      if (next.done) {
+        expect(next.value.state).toBe("completed");
+        break;
+      }
     }
   });
 });
