@@ -3,9 +3,16 @@ import {
   _buildCodexExecArgs,
   _buildCodexPrompt,
 } from "../../src/main/services/llm-service";
+import type { CodexExecCapabilities } from "../../src/main/utils/codex-cli";
+
+const FULL_CAPABILITIES: CodexExecCapabilities = {
+  supportsSearchFlag: true,
+  supportsAskForApprovalFlag: true,
+  supportsOutputLastMessageFlag: true,
+};
 
 test.describe("llm-service codex hardening", () => {
-  test("uses isolated workspace and non-interactive approval mode", () => {
+  test("uses isolated workspace and omits unsupported optional flags by default", () => {
     const args = _buildCodexExecArgs("/tmp/out.txt", "/tmp/workspace");
 
     expect(args).toContain("exec");
@@ -15,16 +22,22 @@ test.describe("llm-service codex hardening", () => {
     expect(args).toContain("/tmp/workspace");
     expect(args).toContain("--sandbox");
     expect(args).toContain("read-only");
-    expect(args).toContain("--ask-for-approval");
-    expect(args).toContain("never");
+    expect(args).not.toContain("--ask-for-approval");
+    expect(args).not.toContain("--output-last-message");
     expect(args).not.toContain("untrusted");
     expect(args).not.toContain("--search");
   });
 
-  test("enables codex web search flag for sender lookup calls", () => {
-    const args = _buildCodexExecArgs("/tmp/out.txt", "/tmp/workspace", { enableWebSearch: true });
+  test("enables codex web search and approval flags when supported", () => {
+    const args = _buildCodexExecArgs("/tmp/out.txt", "/tmp/workspace", {
+      enableWebSearch: true,
+      capabilities: FULL_CAPABILITIES,
+    });
     expect(args[0]).toBe("--search");
     expect(args).toContain("exec");
+    expect(args).toContain("--ask-for-approval");
+    expect(args).toContain("never");
+    expect(args).toContain("--output-last-message");
   });
 
   test("injects safety constraints into codex prompt", () => {

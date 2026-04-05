@@ -10,6 +10,11 @@ import type {
   AgentEvent,
   AgentFrameworkConfig,
 } from "../types";
+import {
+  buildCodexExecArgs,
+  getCodexExecCapabilities,
+  type CodexExecCapabilities,
+} from "../../utils/codex-cli";
 
 const CODEX_AGENT_MODEL = "gpt-5.4-mini-high";
 const CODEX_AGENT_TIMEOUT_MS = 180_000;
@@ -25,22 +30,17 @@ export interface CodexAgentProviderDeps {
   runPrompt?: (input: CodexAgentRunInput) => Promise<string>;
 }
 
-export function _buildCodexAgentExecArgs(outputPath: string, workspaceDir: string): string[] {
-  return [
-    "exec",
-    "--model",
-    CODEX_AGENT_MODEL,
-    "--cd",
+export function _buildCodexAgentExecArgs(
+  outputPath: string,
+  workspaceDir: string,
+  options: { capabilities?: CodexExecCapabilities } = {},
+): string[] {
+  return buildCodexExecArgs({
+    model: CODEX_AGENT_MODEL,
     workspaceDir,
-    "--skip-git-repo-check",
-    "--sandbox",
-    "read-only",
-    "--ask-for-approval",
-    "never",
-    "--output-last-message",
     outputPath,
-    "-",
-  ];
+    capabilities: options.capabilities,
+  });
 }
 
 export function _buildCodexAgentPrompt(params: AgentRunParams): string {
@@ -88,9 +88,11 @@ function isCodexCliAvailable(): boolean {
 async function runCodexPrompt({ prompt, signal, timeoutMs }: CodexAgentRunInput): Promise<string> {
   const tmpDir = mkdtempSync(path.join(os.tmpdir(), "exo-codex-agent-"));
   const outputPath = path.join(tmpDir, "last-message.txt");
-  const args = _buildCodexAgentExecArgs(outputPath, tmpDir);
+  const capabilities = getCodexExecCapabilities();
+  const args = _buildCodexAgentExecArgs(outputPath, tmpDir, { capabilities });
   const env = { ...process.env };
   delete env.CLAUDECODE;
+  let stdoutText = "";
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -102,7 +104,7 @@ async function runCodexPrompt({ prompt, signal, timeoutMs }: CodexAgentRunInput)
       const child = spawn("codex", args, {
         cwd: tmpDir,
         env,
-        stdio: ["pipe", "ignore", "pipe"],
+        stdio: ["pipe", capabilities.supportsOutputLastMessageFlag ? "ignore" : "pipe", "pipe"],
       });
 
       let timedOut = false;
@@ -117,8 +119,11 @@ async function runCodexPrompt({ prompt, signal, timeoutMs }: CodexAgentRunInput)
         child.kill("SIGTERM");
       }, timeoutMs ?? CODEX_AGENT_TIMEOUT_MS);
 
-      child.stderr.on("data", (chunk: Buffer) => {
+      child.stderr?.on("data", (chunk: Buffer) => {
         stderr += chunk.toString();
+      });
+      child.stdout?.on("data", (chunk: Buffer) => {
+        stdoutText += chunk.toString();
       });
 
       child.on("error", (err) => {
@@ -143,14 +148,25 @@ async function runCodexPrompt({ prompt, signal, timeoutMs }: CodexAgentRunInput)
           reject(new Error(stderr.trim() || `Codex CLI exited with code ${code}`));
           return;
         }
+        if (!capabilities.supportsOutputLastMessageFlag && !stdoutText.trim()) {
+          reject(new Error("Codex CLI returned an empty response"));
+          return;
+        }
         resolve();
       });
+
+      if (!child.stdin) {
+        reject(new Error("Codex CLI stdin is unavailable"));
+        return;
+      }
 
       child.stdin.write(prompt);
       child.stdin.end();
     });
 
-    const text = readFileSync(outputPath, "utf-8").trim();
+    const text = capabilities.supportsOutputLastMessageFlag
+      ? readFileSync(outputPath, "utf-8").trim()
+      : stdoutText.trim();
     if (!text) {
       throw new Error("Codex CLI returned an empty response");
     }

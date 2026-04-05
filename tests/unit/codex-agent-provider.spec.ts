@@ -6,6 +6,13 @@ import {
   _buildCodexAgentPrompt,
 } from "../../src/main/agents/providers/codex-agent-provider";
 import type { AgentRunParams } from "../../src/main/agents/types";
+import type { CodexExecCapabilities } from "../../src/main/utils/codex-cli";
+
+const FULL_CAPABILITIES: CodexExecCapabilities = {
+  supportsSearchFlag: true,
+  supportsAskForApprovalFlag: true,
+  supportsOutputLastMessageFlag: true,
+};
 
 function makeRunParams(taskId = "task-1"): AgentRunParams {
   return {
@@ -34,14 +41,23 @@ function makeRunParams(taskId = "task-1"): AgentRunParams {
 }
 
 test.describe("CodexAgentProvider", () => {
-  test("uses non-interactive codex exec arguments", () => {
+  test("omits unsupported optional codex exec flags by default", () => {
     const args = _buildCodexAgentExecArgs("/tmp/out.txt", "/tmp/workspace");
     expect(args).toContain("--model");
     expect(args).toContain("gpt-5.4-mini-high");
-    expect(args).toContain("--ask-for-approval");
-    expect(args).toContain("never");
     expect(args).toContain("--sandbox");
     expect(args).toContain("read-only");
+    expect(args).not.toContain("--ask-for-approval");
+    expect(args).not.toContain("--output-last-message");
+  });
+
+  test("uses optional codex exec flags when capabilities indicate support", () => {
+    const args = _buildCodexAgentExecArgs("/tmp/out.txt", "/tmp/workspace", {
+      capabilities: FULL_CAPABILITIES,
+    });
+    expect(args).toContain("--ask-for-approval");
+    expect(args).toContain("never");
+    expect(args).toContain("--output-last-message");
   });
 
   test("builds a prompt with user request and context", () => {

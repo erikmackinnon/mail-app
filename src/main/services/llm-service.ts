@@ -5,6 +5,11 @@ import path from "path";
 import type { MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resources/messages";
 import { createMessage as createAnthropicMessage } from "./anthropic-service";
 import { getActiveLlmBackend } from "./llm-backend";
+import {
+  buildCodexExecArgs,
+  getCodexExecCapabilities,
+  type CodexExecCapabilities,
+} from "../utils/codex-cli";
 
 interface CreateOptions {
   caller: string;
@@ -57,15 +62,20 @@ async function runCodexMessage(
   const tmpDir = mkdtempSync(path.join(os.tmpdir(), "exo-codex-"));
   const outputPath = path.join(tmpDir, "last-message.txt");
   const timeoutMs = options.timeoutMs ?? 120_000;
-  const args = _buildCodexExecArgs(outputPath, tmpDir, { enableWebSearch: allowWebSearch });
+  const capabilities = getCodexExecCapabilities();
+  const args = _buildCodexExecArgs(outputPath, tmpDir, {
+    enableWebSearch: allowWebSearch,
+    capabilities,
+  });
 
   const env = { ...process.env };
   delete env.CLAUDECODE;
+  let stdoutText = "";
 
   try {
     await new Promise<void>((resolve, reject) => {
       const child = spawn("codex", args, {
-        stdio: ["pipe", "ignore", "pipe"],
+        stdio: ["pipe", capabilities.supportsOutputLastMessageFlag ? "ignore" : "pipe", "pipe"],
         cwd: tmpDir,
         env,
       });
@@ -78,8 +88,11 @@ async function runCodexMessage(
         child.kill();
       }, timeoutMs);
 
-      child.stderr.on("data", (chunk: Buffer) => {
+      child.stderr?.on("data", (chunk: Buffer) => {
         stderr += chunk.toString();
+      });
+      child.stdout?.on("data", (chunk: Buffer) => {
+        stdoutText += chunk.toString();
       });
 
       child.on("error", (err) => {
@@ -97,14 +110,25 @@ async function runCodexMessage(
           reject(new Error(stderr.trim() || `Codex CLI exited with code ${code}`));
           return;
         }
+        if (!capabilities.supportsOutputLastMessageFlag && !stdoutText.trim()) {
+          reject(new Error("Codex CLI returned an empty response"));
+          return;
+        }
         resolve();
       });
+
+      if (!child.stdin) {
+        reject(new Error("Codex CLI stdin is unavailable"));
+        return;
+      }
 
       child.stdin.write(prompt);
       child.stdin.end();
     });
 
-    const text = readFileSync(outputPath, "utf-8").trim();
+    const text = capabilities.supportsOutputLastMessageFlag
+      ? readFileSync(outputPath, "utf-8").trim()
+      : stdoutText.trim();
     if (!text) {
       throw new Error("Codex CLI returned an empty response");
     }
@@ -121,31 +145,15 @@ async function runCodexMessage(
 export function _buildCodexExecArgs(
   outputPath: string,
   workspaceDir: string,
-  options: { enableWebSearch?: boolean } = {},
+  options: { enableWebSearch?: boolean; capabilities?: CodexExecCapabilities } = {},
 ): string[] {
-  const args: string[] = [];
-  if (options.enableWebSearch) {
-    // Global codex flag: enables native web_search tool in non-interactive runs.
-    args.push("--search");
-  }
-
-  args.push(
-    "exec",
-    "--model",
-    CODEX_MODEL_ID,
-    "--cd",
+  return buildCodexExecArgs({
+    model: CODEX_MODEL_ID,
     workspaceDir,
-    "--skip-git-repo-check",
-    "--sandbox",
-    "read-only",
-    "--ask-for-approval",
-    "never",
-    "--output-last-message",
     outputPath,
-    "-",
-  );
-
-  return args;
+    enableWebSearch: options.enableWebSearch,
+    capabilities: options.capabilities,
+  });
 }
 
 export function _buildCodexPrompt(
