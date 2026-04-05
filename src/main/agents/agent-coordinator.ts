@@ -557,12 +557,16 @@ export class AgentCoordinator {
   async checkProviderHealth(
     providerId: string,
   ): Promise<{ status: "connected" | "not_configured" | "error"; message?: string }> {
-    if (!this.worker) {
-      return { status: "error", message: "Worker not running" };
-    }
-
-    if (this.workerReady) {
-      await this.workerReady;
+    try {
+      this.ensureWorker();
+      if (this.workerReady) {
+        await this.workerReady;
+      }
+    } catch (err) {
+      return {
+        status: "error",
+        message: err instanceof Error ? err.message : "Worker not running",
+      };
     }
 
     return new Promise((resolve) => {

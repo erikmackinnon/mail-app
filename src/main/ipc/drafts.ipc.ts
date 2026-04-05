@@ -225,7 +225,8 @@ FORMATTING: Write plain text paragraphs separated by blank lines. Do NOT use HTM
         prefetchService.trackManualAgentDraft(emailId, taskId);
 
         // Launch agent — events auto-stream to renderer via agent:event IPC
-        await agentCoordinator.runAgent(taskId, [getPreferredAgentProviderId()], prompt, context);
+        const providerId = await getPreferredAgentProviderId();
+        await agentCoordinator.runAgent(taskId, [providerId], prompt, context);
 
         // Link draft to agent task when it completes (async, don't block response)
         agentCoordinator

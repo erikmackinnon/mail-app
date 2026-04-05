@@ -92,6 +92,9 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   );
   const [isValidatingOpenAI, setIsValidatingOpenAI] = useState(false);
   const [openaiValidationResult, setOpenaiValidationResult] = useState<string | null>(null);
+  const [openaiValidationStatus, setOpenaiValidationStatus] = useState<
+    "success" | "warning" | "error" | null
+  >(null);
   const [isSavingGeneral, setIsSavingGeneral] = useState(false);
   const [isExportingLogs, setIsExportingLogs] = useState(false);
   const [exportLogsError, setExportLogsError] = useState<string | null>(null);
@@ -389,21 +392,71 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   const handleSaveGeneral = async () => {
     setIsSavingGeneral(true);
     try {
-      await window.api.settings.set({
+      let normalizedOpenAIConfig: Config["openaiCompatible"] | undefined;
+      if (llmBackend === "openai_compatible") {
+        if (!openaiBaseUrl.trim()) {
+          setOpenaiValidationStatus("error");
+          setOpenaiValidationResult(
+            "OpenAI-compatible backend requires a base URL. Add one before saving.",
+          );
+          return;
+        }
+
+        const normalizedModelConfig: OpenAICompatibleModelConfig = {
+          ...DEFAULT_OPENAI_COMPATIBLE_MODEL_CONFIG,
+          ...openaiModelConfig,
+        };
+        for (const key of Object.keys(normalizedModelConfig) as (keyof OpenAICompatibleModelConfig)[]) {
+          normalizedModelConfig[key] =
+            normalizedModelConfig[key].trim() || DEFAULT_OPENAI_COMPATIBLE_MODEL_CONFIG[key];
+        }
+
+        const validation = (await window.api.settings.validateOpenAICompatible(
+          openaiBaseUrl.trim(),
+          openaiApiKey.trim() || undefined,
+          normalizedModelConfig.senderLookup,
+        )) as {
+          success: boolean;
+          error?: string;
+          data?: { agentSupported: boolean; agentMessage?: string };
+        };
+        if (!validation.success) {
+          setOpenaiValidationStatus("error");
+          setOpenaiValidationResult(validation.error || "Endpoint validation failed.");
+          return;
+        }
+        if (validation.data?.agentSupported === false) {
+          setOpenaiValidationStatus("warning");
+          setOpenaiValidationResult(
+            `Endpoint OK for analysis/drafts. Agent tool-calls unavailable: ${validation.data.agentMessage || "missing streaming/tool support"}. Exo will fall back to Claude for agent tasks.`,
+          );
+        } else {
+          setOpenaiValidationStatus("success");
+          setOpenaiValidationResult("Connection successful.");
+        }
+
+        normalizedOpenAIConfig = {
+          baseUrl: openaiBaseUrl.trim(),
+          apiKey: openaiApiKey.trim() || undefined,
+          modelConfig: normalizedModelConfig,
+        };
+      }
+
+      const saveResult = (await window.api.settings.set({
         llmBackend,
         enableSenderLookup,
         modelConfig,
-        openaiCompatible:
-          openaiBaseUrl.trim().length > 0
-            ? {
-                baseUrl: openaiBaseUrl.trim(),
-                apiKey: openaiApiKey.trim() || undefined,
-                modelConfig: openaiModelConfig,
-              }
-            : undefined,
+        openaiCompatible: llmBackend === "openai_compatible" ? normalizedOpenAIConfig : undefined,
         githubToken: githubToken || undefined,
         allowPrereleaseUpdates,
-      });
+      })) as { success: boolean; error?: string };
+      if (!saveResult.success) {
+        if (llmBackend === "openai_compatible") {
+          setOpenaiValidationStatus("error");
+          setOpenaiValidationResult(saveResult.error || "Failed to save OpenAI-compatible settings.");
+        }
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["general-config"] });
     } finally {
       setIsSavingGeneral(false);
@@ -413,6 +466,7 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   const handleValidateOpenAI = async () => {
     setIsValidatingOpenAI(true);
     setOpenaiValidationResult(null);
+    setOpenaiValidationStatus(null);
     try {
       const validation = (await window.api.settings.validateOpenAICompatible(
         openaiBaseUrl.trim(),
@@ -424,15 +478,19 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
         data?: { agentSupported: boolean; agentMessage?: string };
       };
       if (!validation.success) {
+        setOpenaiValidationStatus("error");
         setOpenaiValidationResult(validation.error || "Validation failed.");
       } else if (validation.data?.agentSupported === false) {
+        setOpenaiValidationStatus("warning");
         setOpenaiValidationResult(
-          `Endpoint OK for non-agent flows. Agent unavailable: ${validation.data.agentMessage || "missing streaming/tool support"}`,
+          `Endpoint OK for analysis/drafts. Agent tool-calls unavailable: ${validation.data.agentMessage || "missing streaming/tool support"}. Exo will fall back to Claude for agent tasks.`,
         );
       } else {
+        setOpenaiValidationStatus("success");
         setOpenaiValidationResult("Connection successful.");
       }
     } catch (error) {
+      setOpenaiValidationStatus("error");
       setOpenaiValidationResult(error instanceof Error ? error.message : "Validation failed.");
     } finally {
       setIsValidatingOpenAI(false);
@@ -1183,9 +1241,11 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                       {openaiValidationResult && (
                         <span
                           className={`text-xs ${
-                            openaiValidationResult === "Connection successful."
+                            openaiValidationStatus === "success"
                               ? "text-green-600 dark:text-green-400"
-                              : "text-red-600 dark:text-red-400"
+                              : openaiValidationStatus === "warning"
+                                ? "text-amber-600 dark:text-amber-400"
+                                : "text-red-600 dark:text-red-400"
                           }`}
                         >
                           {openaiValidationResult}

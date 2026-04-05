@@ -7,6 +7,7 @@ import type {
   AgentFrameworkConfig,
   AgentToolSpec,
 } from "../types";
+import { z } from "zod";
 import { createLogger } from "../../services/logger";
 
 const log = createLogger("openai-compatible-agent");
@@ -431,16 +432,40 @@ function buildSystemPrompt(context: AgentRunParams["context"], tools: AgentToolS
   return parts.join("\n\n");
 }
 
-function toOpenAiJsonSchema(tool: AgentToolSpec): Record<string, unknown> {
-  const shape = (tool.inputSchema as { shape?: Record<string, unknown> }).shape;
-  if (!shape || typeof shape !== "object") {
-    return { type: "object", additionalProperties: true };
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function sanitizeJsonSchema(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeJsonSchema(item));
   }
-  const properties: Record<string, unknown> = {};
-  for (const key of Object.keys(shape)) {
-    properties[key] = { type: "string" };
+  if (!isRecord(value)) return value;
+
+  const out: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value)) {
+    if (key === "$schema" || key === "$id") continue;
+    out[key] = sanitizeJsonSchema(nested);
   }
-  return { type: "object", properties, additionalProperties: true };
+  return out;
+}
+
+export function toOpenAiJsonSchema(tool: AgentToolSpec): Record<string, unknown> {
+  try {
+    const jsonSchema = sanitizeJsonSchema(z.toJSONSchema(tool.inputSchema));
+    if (isRecord(jsonSchema) && jsonSchema.type === "object") {
+      if (!("additionalProperties" in jsonSchema)) {
+        jsonSchema.additionalProperties = true;
+      }
+      return jsonSchema;
+    }
+  } catch (err) {
+    log.warn(
+      { err: err },
+      `[OpenAICompatibleAgent] Failed to convert tool schema for ${tool.name}, using fallback.`,
+    );
+  }
+  return { type: "object", additionalProperties: true };
 }
 
 function tryParseJson(raw: string): unknown {

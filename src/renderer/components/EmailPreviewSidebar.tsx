@@ -3,6 +3,7 @@ import { useAppStore } from "../store";
 import { useExtensionPanels, ExtensionPanelSlot } from "../extensions";
 import { AgentTabContent } from "./AgentPanel";
 import type { ScopedAgentEvent } from "../../shared/agent-types";
+import { deriveReplayProviderIds } from "../utils/agent-trace";
 
 // SVG icon components for sidebar tabs
 function PersonIcon({ active }: { active: boolean }) {
@@ -262,12 +263,15 @@ export const EmailPreviewSidebar = memo(function EmailPreviewSidebar() {
           // Read fresh email data from the store for the synthetic task
           const email = useAppStore.getState().emails.find((e) => e.id === emailIdSnapshot);
           if (!email) return;
+          const fallbackProviderId =
+            useAppStore.getState().availableProviders[0]?.id || "claude";
+          const providerIds = deriveReplayProviderIds(result.data.events, fallbackProviderId);
 
           // Replay entire trace in a single store update (avoids O(n²) from N appendAgentEvent calls)
           replayAgentTrace(
             taskId,
             email.id,
-            ["claude"],
+            providerIds,
             "",
             {
               accountId: email.accountId || "",

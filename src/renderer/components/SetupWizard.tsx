@@ -22,6 +22,7 @@ interface ExtensionAuthInfo {
 export function SetupWizard({ onComplete }: SetupWizardProps) {
   const [step, setStep] = useState<Step>("loading");
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   // Track which steps are in the flow (determined at init)
@@ -119,6 +120,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   const handleSaveApiKey = async () => {
     setIsLoading(true);
     setError(null);
+    setWarning(null);
 
     try {
       if (llmBackend === "anthropic") {
@@ -148,10 +150,15 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
           openaiBaseUrl.trim(),
           openaiApiKey.trim() || undefined,
           openaiModel.trim(),
-        )) as IpcResponse<void>;
+        )) as IpcResponse<{ agentSupported: boolean; agentMessage?: string }>;
         if (!validation.success) {
           setError(validation.error ?? "Endpoint validation failed");
           return;
+        }
+        if (validation.data?.agentSupported === false) {
+          setWarning(
+            `Endpoint works for analysis/drafts, but not agent tool-calls (${validation.data.agentMessage || "missing streaming/tool support"}). Exo will fall back to Claude for agent tasks when available.`,
+          );
         }
       }
 
@@ -516,6 +523,12 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
               >
                 {isLoading ? "Saving..." : "Continue"}
               </button>
+
+              {warning && (
+                <div className="p-3 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-lg mt-4">
+                  <p className="text-sm text-amber-800 dark:text-amber-300">{warning}</p>
+                </div>
+              )}
             </>
           )}
 

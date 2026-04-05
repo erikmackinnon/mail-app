@@ -39,11 +39,19 @@ import {
 } from "../db";
 import { getEnrichmentBySender } from "../extensions/enrichment-store";
 import { autoUpdateService } from "../services/auto-updater";
+import {
+  resolveAgentProviderWithFallback,
+  type BuiltInAgentProviderId,
+} from "../agents/provider-selection";
 
 import { getDataDir } from "../data-dir";
 import { createLogger } from "../services/logger";
 
 const log = createLogger("settings-ipc");
+const AGENT_PROVIDER_CACHE_TTL_MS = 15_000;
+let cachedAgentProviderSelection:
+  | { at: number; backend: LlmBackend; providerId: BuiltInAgentProviderId }
+  | null = null;
 
 // Lazy-initialized to avoid running before initDevData() — ES module import
 // hoisting would otherwise cause the Store constructor to create files in
@@ -145,8 +153,56 @@ export function getOpenAICompatibleModelConfig(): OpenAICompatibleModelConfig {
   return { ...DEFAULT_OPENAI_COMPATIBLE_MODEL_CONFIG, ...cfg?.modelConfig };
 }
 
-export function getPreferredAgentProviderId(): string {
-  return getLlmBackend() === "openai_compatible" ? "openai-compatible" : "claude";
+function normalizeOpenAICompatibleModelConfig(
+  input: OpenAICompatibleModelConfig | undefined,
+): OpenAICompatibleModelConfig {
+  const merged = { ...DEFAULT_OPENAI_COMPATIBLE_MODEL_CONFIG, ...input };
+  const normalized = {} as OpenAICompatibleModelConfig;
+  for (const key of Object.keys(merged) as (keyof OpenAICompatibleModelConfig)[]) {
+    normalized[key] = merged[key].trim() || DEFAULT_OPENAI_COMPATIBLE_MODEL_CONFIG[key];
+  }
+  return normalized;
+}
+
+export async function getPreferredAgentProviderId(): Promise<string> {
+  const backend = getLlmBackend();
+  if (
+    cachedAgentProviderSelection &&
+    cachedAgentProviderSelection.backend === backend &&
+    Date.now() - cachedAgentProviderSelection.at < AGENT_PROVIDER_CACHE_TTL_MS
+  ) {
+    return cachedAgentProviderSelection.providerId;
+  }
+
+  const resolution = await resolveAgentProviderWithFallback({
+    llmBackend: backend,
+    isProviderAvailable: async (providerId) => {
+      try {
+        const health = await agentCoordinator.checkProviderHealth(providerId);
+        return health.status === "connected";
+      } catch (err) {
+        log.warn(
+          { err: err },
+          `[Settings] Failed to check health for provider "${providerId}", treating as unavailable.`,
+        );
+        return false;
+      }
+    },
+  });
+
+  if (resolution.usedFallback) {
+    log.warn(
+      `[Settings] Preferred agent provider "${resolution.preferredProviderId}" unavailable; falling back to "${resolution.providerId}".`,
+    );
+  }
+
+  cachedAgentProviderSelection = {
+    at: Date.now(),
+    backend,
+    providerId: resolution.providerId,
+  };
+
+  return resolution.providerId;
 }
 
 /** Resolve the concrete model ID for a given feature. */
@@ -329,7 +385,29 @@ export function registerSettingsIpc(): void {
   ipcMain.handle("settings:set", async (_, config: Partial<Config>): Promise<IpcResponse<void>> => {
     try {
       const currentConfig = getConfig();
-      const newConfig = { ...currentConfig, ...config };
+      const newConfig: Config = { ...currentConfig, ...config };
+
+      if (
+        (config.llmBackend !== undefined && newConfig.llmBackend === "openai_compatible") ||
+        config.openaiCompatible !== undefined
+      ) {
+        const openaiCfg = newConfig.openaiCompatible;
+        if (!openaiCfg?.baseUrl?.trim()) {
+          return {
+            success: false,
+            error:
+              "OpenAI-compatible backend requires a base URL. Add one or switch back to Anthropic.",
+          };
+        }
+        newConfig.openaiCompatible = {
+          ...openaiCfg,
+          baseUrl: openaiCfg.baseUrl.trim(),
+          apiKey: openaiCfg.apiKey?.trim() || undefined,
+          modelConfig: normalizeOpenAICompatibleModelConfig(openaiCfg.modelConfig),
+        };
+      }
+
+      cachedAgentProviderSelection = null;
       getStore().set("config", newConfig);
       setLlmRuntimeConfig({
         llmBackend: newConfig.llmBackend ?? "anthropic",

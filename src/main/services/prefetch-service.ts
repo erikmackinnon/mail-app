@@ -1119,7 +1119,8 @@ When you see emails in a thread where ${eaName} is coordinating scheduling with 
       this.activeAgentTaskIds.set(emailId, taskId);
 
       // Launch the agent and await its actual completion (not just startup)
-      await agentCoordinator.runAgent(taskId, [getPreferredAgentProviderId()], prompt, context);
+      const providerId = await getPreferredAgentProviderId();
+      await agentCoordinator.runAgent(taskId, [providerId], prompt, context);
       await agentCoordinator.waitForCompletion(taskId);
 
       // Link the draft record to the agent task so the trace can be loaded later
