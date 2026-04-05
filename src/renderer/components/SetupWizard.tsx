@@ -119,6 +119,14 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     setError(null);
 
     try {
+      const backendSaveResult = (await window.api.settings.set({
+        llmBackend,
+      })) as IpcResponse<void>;
+      if (!backendSaveResult.success) {
+        setError(backendSaveResult.error ?? "Failed to save backend setting");
+        return;
+      }
+
       if (llmBackend === "codex") {
         const codexLoginResult = (await window.api.agent.codexLogin()) as {
           success: boolean;
@@ -371,6 +379,24 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
           {step === "apikey" && (
             <>
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  LLM Backend
+                </label>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                  This is saved to Settings and can be changed later.
+                </p>
+                <select
+                  value={llmBackend}
+                  onChange={(e) => setLlmBackend(e.target.value as "anthropic" | "codex")}
+                  disabled={isLoading}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="anthropic">Anthropic</option>
+                  <option value="codex">Codex</option>
+                </select>
+              </div>
+
               <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
                 {llmBackend === "codex" ? "LLM Auth Setup" : "Anthropic API Key"}
               </h2>

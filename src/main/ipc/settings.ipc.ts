@@ -31,7 +31,7 @@ import {
 } from "../db";
 import { getEnrichmentBySender } from "../extensions/enrichment-store";
 import { autoUpdateService } from "../services/auto-updater";
-import { normalizeLlmBackend } from "../services/llm-backend";
+import { normalizeLlmBackend, setActiveLlmBackend } from "../services/llm-backend";
 
 import { getDataDir } from "../data-dir";
 import { createLogger } from "../services/logger";
@@ -227,7 +227,7 @@ export function registerSettingsIpc(): void {
       }
 
       if ("llmBackend" in config) {
-        process.env.EXO_LLM_BACKEND = normalizeLlmBackend(newConfig.llmBackend);
+        setActiveLlmBackend(newConfig.llmBackend);
       }
 
       // Propagate agent browser config changes

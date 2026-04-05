@@ -1,23 +1,23 @@
 import type { LlmBackend } from "../../shared/types";
 
 const DEFAULT_BACKEND: LlmBackend = "anthropic";
+let activeBackend: LlmBackend = DEFAULT_BACKEND;
 
 export function normalizeLlmBackend(value: unknown): LlmBackend {
   return value === "codex" ? "codex" : DEFAULT_BACKEND;
 }
 
-export function resolveLlmBackend(
-  configuredBackend: unknown,
-  envBackend: unknown = process.env.EXO_LLM_BACKEND,
-): LlmBackend {
-  if (envBackend === "codex" || envBackend === "anthropic") {
-    return envBackend;
-  }
+export function resolveLlmBackend(configuredBackend: unknown): LlmBackend {
   return normalizeLlmBackend(configuredBackend);
 }
 
+export function setActiveLlmBackend(configuredBackend: unknown): LlmBackend {
+  activeBackend = resolveLlmBackend(configuredBackend);
+  return activeBackend;
+}
+
 export function getActiveLlmBackend(): LlmBackend {
-  return resolveLlmBackend(DEFAULT_BACKEND);
+  return activeBackend;
 }
 
 export function getDefaultAgentProviderIdForBackend(backend: LlmBackend): "claude" | "codex" {

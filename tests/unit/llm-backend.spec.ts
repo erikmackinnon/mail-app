@@ -3,6 +3,8 @@ import {
   normalizeLlmBackend,
   getDefaultAgentProviderIdForBackend,
   resolveLlmBackend,
+  setActiveLlmBackend,
+  getActiveLlmBackend,
 } from "../../src/main/services/llm-backend";
 
 test.describe("llm-backend routing", () => {
@@ -15,14 +17,21 @@ test.describe("llm-backend routing", () => {
     expect(normalizeLlmBackend("codex")).toBe("codex");
   });
 
-  test("prefers explicit env backend when resolving active backend", () => {
-    expect(resolveLlmBackend("anthropic", "codex")).toBe("codex");
-    expect(resolveLlmBackend("codex", "anthropic")).toBe("anthropic");
+  test("resolves backend from persisted config value", () => {
+    expect(resolveLlmBackend("anthropic")).toBe("anthropic");
+    expect(resolveLlmBackend("codex")).toBe("codex");
   });
 
-  test("falls back to configured backend when env backend is invalid or missing", () => {
-    expect(resolveLlmBackend("codex", undefined)).toBe("codex");
-    expect(resolveLlmBackend("codex", "invalid")).toBe("codex");
+  test("falls back to anthropic when configured backend is missing or invalid", () => {
+    expect(resolveLlmBackend(undefined)).toBe("anthropic");
+    expect(resolveLlmBackend("invalid")).toBe("anthropic");
+  });
+
+  test("tracks active backend from persisted config updates", () => {
+    expect(setActiveLlmBackend("codex")).toBe("codex");
+    expect(getActiveLlmBackend()).toBe("codex");
+    expect(setActiveLlmBackend("invalid")).toBe("anthropic");
+    expect(getActiveLlmBackend()).toBe("anthropic");
   });
 
   test("routes interactive agents to claude for every backend", () => {
