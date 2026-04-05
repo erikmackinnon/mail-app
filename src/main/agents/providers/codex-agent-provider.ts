@@ -6,42 +6,34 @@ import type {
   AgentEvent,
   AgentFrameworkConfig,
 } from "../types";
-import { ClaudeAgentProvider } from "./claude-agent-provider";
 
 /**
- * Codex provider ID for backend-aware routing.
- *
- * The current implementation reuses the Claude tool-orchestration runtime so
- * agent capabilities stay identical while backend selection, auth routing, and
- * run paths are codex-aware.
+ * Codex provider placeholder.
+ * Interactive agent orchestration still runs on Claude Agent SDK; this provider
+ * intentionally fails fast so we never silently delegate to a different runtime.
  */
 export class CodexAgentProvider implements AgentProvider {
   readonly config: AgentProviderConfig = {
     id: "codex",
     name: "Codex Agent",
-    description: "Codex backend with full tool access",
+    description: "Unavailable: Codex interactive agent runtime is not yet implemented",
     auth: { type: "oauth" },
   };
 
-  private delegate: ClaudeAgentProvider;
+  constructor(_frameworkConfig: AgentFrameworkConfig) {}
 
-  constructor(frameworkConfig: AgentFrameworkConfig) {
-    this.delegate = new ClaudeAgentProvider(frameworkConfig);
+  async *run(_params: AgentRunParams): AsyncGenerator<AgentEvent, AgentRunResult, void> {
+    const message =
+      "Codex interactive agent runtime is not available yet. Use the Claude provider for agent tasks.";
+    yield { type: "error", message };
+    return { state: "failed" };
   }
 
-  async *run(params: AgentRunParams): AsyncGenerator<AgentEvent, AgentRunResult, void> {
-    return yield* this.delegate.run(params);
-  }
+  cancel(_taskId: string): void {}
 
-  cancel(taskId: string): void {
-    this.delegate.cancel(taskId);
-  }
-
-  updateConfig(config: Partial<AgentFrameworkConfig>): void {
-    this.delegate.updateConfig?.(config);
-  }
+  updateConfig(_config: Partial<AgentFrameworkConfig>): void {}
 
   async isAvailable(): Promise<boolean> {
-    return true;
+    return false;
   }
 }

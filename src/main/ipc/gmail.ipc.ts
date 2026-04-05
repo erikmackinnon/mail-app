@@ -1,5 +1,5 @@
 import { ipcMain } from "electron";
-import { execFileSync } from "child_process";
+import { execFile } from "child_process";
 import { GmailClient } from "../services/gmail-client";
 import { saveEmail, getEmailIds, getInboxEmails, getEmail, saveAccount, getAccounts } from "../db";
 import { getConfig } from "./settings.ipc";
@@ -16,19 +16,44 @@ const useFakeData = isTestMode || isDemoMode;
 
 const gmailClients = new Map<string, GmailClient>();
 
-function hasCodexCliAuth(): boolean {
-  try {
-    const env = { ...process.env };
-    delete env.CLAUDECODE;
-    const stdout = execFileSync("codex", ["login", "status"], {
-      timeout: 7000,
-      encoding: "utf-8",
-      env,
+async function hasCodexCliAuth(): Promise<boolean> {
+  const env = { ...process.env };
+  delete env.CLAUDECODE;
+
+  return new Promise<boolean>((resolve) => {
+    execFile("codex", ["login", "status"], { timeout: 7000, encoding: "utf-8", env }, (error, stdout) => {
+      if (error) {
+        resolve(false);
+        return;
+      }
+      resolve(stdout.trim().toLowerCase().startsWith("logged in"));
     });
-    return stdout.trim().toLowerCase().startsWith("logged in");
-  } catch {
-    return false;
-  }
+  });
+}
+
+async function hasClaudeCliAuth(): Promise<boolean> {
+  const env = { ...process.env };
+  delete env.CLAUDECODE;
+
+  return new Promise<boolean>((resolve) => {
+    execFile(
+      "claude",
+      ["auth", "status", "--json"],
+      { timeout: 10_000, encoding: "utf-8", env },
+      (error, stdout) => {
+        if (error) {
+          resolve(false);
+          return;
+        }
+        try {
+          const parsed = JSON.parse(stdout.trim()) as { loggedIn?: boolean };
+          resolve(Boolean(parsed.loggedIn));
+        } catch {
+          resolve(false);
+        }
+      },
+    );
+  });
 }
 
 function resolveTargetAccountId(accountId?: string): string {
@@ -95,7 +120,10 @@ export function registerGmailIpc(): void {
         const config = getConfig();
         const llmBackend = normalizeLlmBackend(config.llmBackend);
         const hasAnthropicKey = !!(process.env.ANTHROPIC_API_KEY || config.anthropicApiKey);
-        const hasLlmAuth = llmBackend === "codex" ? hasCodexCliAuth() : hasAnthropicKey;
+        const hasLlmAuth =
+          llmBackend === "codex"
+            ? (await hasCodexCliAuth()) && (await hasClaudeCliAuth())
+            : hasAnthropicKey;
         return {
           success: true,
           data: {

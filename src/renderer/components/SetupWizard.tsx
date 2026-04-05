@@ -120,13 +120,27 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
     try {
       if (llmBackend === "codex") {
-        const loginResult = (await window.api.agent.codexLogin()) as {
+        const codexLoginResult = (await window.api.agent.codexLogin()) as {
           success: boolean;
           data?: { success: boolean; error?: string };
           error?: string;
         };
-        if (!loginResult.success || !loginResult.data?.success) {
-          setError(loginResult.data?.error || loginResult.error || "Codex login failed");
+        if (!codexLoginResult.success || !codexLoginResult.data?.success) {
+          setError(codexLoginResult.data?.error || codexLoginResult.error || "Codex login failed");
+          return;
+        }
+
+        const claudeLoginResult = (await window.api.agent.claudeLogin()) as {
+          success: boolean;
+          data?: { success: boolean; error?: string };
+          error?: string;
+        };
+        if (!claudeLoginResult.success || !claudeLoginResult.data?.success) {
+          setError(
+            claudeLoginResult.data?.error ||
+              claudeLoginResult.error ||
+              "Claude login failed (required for agent tasks)",
+          );
           return;
         }
       } else {
@@ -358,11 +372,11 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
           {step === "apikey" && (
             <>
               <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
-                {llmBackend === "codex" ? "Codex Login" : "Anthropic API Key"}
+                {llmBackend === "codex" ? "LLM Auth Setup" : "Anthropic API Key"}
               </h2>
               <p className="text-gray-600 dark:text-gray-400 mb-6">
                 {llmBackend === "codex"
-                  ? "Exo uses your logged-in Codex CLI session for AI features. Sign in to continue."
+                  ? "Exo uses Codex for backend generation and Claude for interactive agent runtime. Sign in to both to continue."
                   : "Exo uses Claude to analyze your emails, generate drafts, and look up sender information. You'll need an Anthropic API key to enable these features."}
               </p>
 
@@ -372,7 +386,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                 </h3>
                 {llmBackend === "codex" ? (
                   <p className="text-sm text-blue-800 dark:text-blue-300">
-                    Continue to start the Codex CLI login flow.
+                    Continue to run both the Codex CLI and Claude CLI login flows.
                   </p>
                 ) : (
                   <ol className="text-sm text-blue-800 dark:text-blue-300 space-y-2 list-decimal list-inside">
@@ -422,7 +436,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                 disabled={isLoading || (llmBackend !== "codex" && !apiKey.trim())}
                 className="w-full py-3 bg-blue-600 dark:bg-blue-500 text-white font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50"
               >
-                {isLoading ? "Saving..." : llmBackend === "codex" ? "Login with Codex" : "Continue"}
+                {isLoading ? "Saving..." : llmBackend === "codex" ? "Login with Codex + Claude" : "Continue"}
               </button>
             </>
           )}
