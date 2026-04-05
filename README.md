@@ -34,23 +34,25 @@ Exo treats AI as a first-class citizen — not a bolted-on feature. Every email 
 
 ## Fork Development Roadmap
 
-Maintainer note: update this section as implementation progresses. Keep `Status`, branch/worktree paths, and checklist boxes current so handoffs and PR prep stay accurate.
+Maintainer note: this is the canonical status tracker for fork work. Update stream `Status`, branch/worktree paths, and checklist boxes in this section during each handoff/merge.
+
+Last updated: `2026-04-04`
 
 | Stream | Branch | Worktree Path | Status | Scope Summary |
 | --- | --- | --- | --- | --- |
-| PR1: Codex backend + auth | `feature/pr1-codex-backend-auth` | `/home/erik/Development/mail-app-pr1-codex-backend-auth` | `Planned` | Add Codex-backed provider flow, auth/config wiring, backend integration surface, and regression-safe fallback behavior. |
-| PR2: OpenAI-compatible endpoint backend | `feature/pr2-openai-compatible-backend` | `/home/erik/Development/mail-app-pr2-openai-compatible-backend` | `Planned` | Add OpenAI-compatible endpoint provider with shared backend abstractions, model/config mapping, and interoperability with existing agent workflows. |
+| PR1: Codex backend + auth | `feature/pr1-codex-backend-auth` | `/home/erik/Development/mail-app-pr1-codex-backend-auth` | `In Progress` | Codex provider backend, auth/config plumbing, IPC/service integration, and safe fallback behavior. |
+| PR2: OpenAI-compatible endpoint backend | `feature/pr2-openai-compatible-backend` | `/home/erik/Development/mail-app-pr2-openai-compatible-backend` | `Planned` | OpenAI-compatible backend provider, endpoint/model mapping, shared abstractions, and compatibility hardening. |
 
 ### PR1: Codex backend + auth
 
-Test gate checklist:
+Test gates:
 - [ ] `npm run test:unit`
 - [ ] `npm run test:integration`
 - [ ] `npm run lint`
 - [ ] `npx tsc --noEmit -p tsconfig.node.json`
 - [ ] `npx tsc --noEmit -p tsconfig.web.json`
 
-PR readiness checklist:
+PR readiness:
 - [ ] Scope is limited to Codex backend + auth changes.
 - [ ] New/changed env vars and auth prerequisites are documented.
 - [ ] Migration/backward-compat behavior is documented (if applicable).
@@ -59,14 +61,14 @@ PR readiness checklist:
 
 ### PR2: OpenAI-compatible endpoint backend
 
-Test gate checklist:
+Test gates:
 - [ ] `npm run test:unit`
 - [ ] `npm run test:integration`
 - [ ] `npm run lint`
 - [ ] `npx tsc --noEmit -p tsconfig.node.json`
 - [ ] `npx tsc --noEmit -p tsconfig.web.json`
 
-PR readiness checklist:
+PR readiness:
 - [ ] Scope is limited to OpenAI-compatible backend changes.
 - [ ] Endpoint/auth configuration and validation paths are documented.
 - [ ] Provider compatibility matrix (models/features) is updated.
