@@ -127,7 +127,7 @@ export function _buildCodexExecArgs(outputPath: string, workspaceDir: string): s
     "--sandbox",
     "read-only",
     "--ask-for-approval",
-    "untrusted",
+    "never",
     "--output-last-message",
     outputPath,
     "-",

@@ -31,6 +31,8 @@ interface SettingsPanelProps {
   initialTab?: SettingsTab;
 }
 
+const CODEX_MODEL_TARGET = "gpt-5.4-mini-high";
+
 export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "general");
@@ -1137,82 +1139,100 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 <div className="mb-3">
                   <h3 className="font-semibold text-gray-900 dark:text-gray-100">AI Models</h3>
                   <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                    Choose which Claude model to use for each feature. Haiku is fastest and
-                    cheapest, Opus is most capable.
+                    {llmBackend === "codex"
+                      ? "Codex backend uses a fixed model target for core features and agent runs."
+                      : "Choose which Claude model to use for each feature. Haiku is fastest and cheapest, Opus is most capable."}
                   </p>
                 </div>
-                <div className="space-y-3">
-                  {[
-                    {
-                      key: "analysis" as const,
-                      label: "Email Analysis",
-                      description: "Triaging which emails need replies",
-                    },
-                    {
-                      key: "drafts" as const,
-                      label: "Draft Generation",
-                      description: "Writing reply drafts",
-                    },
-                    {
-                      key: "refinement" as const,
-                      label: "Draft Refinement",
-                      description: "Improving drafts based on feedback",
-                    },
-                    {
-                      key: "calendaring" as const,
-                      label: "Scheduling Detection",
-                      description: "Identifying calendar-related emails",
-                    },
-                    {
-                      key: "archiveReady" as const,
-                      label: "Archive-Ready Analysis",
-                      description: "Detecting completed conversations",
-                    },
-                    {
-                      key: "senderLookup" as const,
-                      label: "Sender Lookup",
-                      description: "Web search for sender info",
-                    },
-                    {
-                      key: "agentDrafter" as const,
-                      label: "Agent Drafter",
-                      description: "Background auto-draft generation",
-                    },
-                    {
-                      key: "agentChat" as const,
-                      label: "Agent Chat",
-                      description: "Interactive agent sidebar conversations",
-                    },
-                  ].map(({ key, label, description }) => (
-                    <div
-                      key={key}
-                      className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700 last:border-0"
-                    >
-                      <div className="flex-1 min-w-0 mr-4">
-                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                          {label}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{description}</p>
-                      </div>
-                      <select
-                        value={modelConfig[key]}
-                        onChange={(e) => {
-                          const tier = e.target.value;
-                          if ((MODEL_TIERS as readonly string[]).includes(tier)) {
-                            setModelConfig((prev) => ({ ...prev, [key]: tier as ModelTier }));
-                          }
-                        }}
-                        className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-500 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      >
-                        {MODEL_TIERS.map((tier) => (
-                          <option key={tier} value={tier}>
-                            {MODEL_TIER_LABELS[tier]}
-                          </option>
-                        ))}
-                      </select>
+                {llmBackend === "codex" ? (
+                  <div className="rounded-lg border border-blue-200 dark:border-blue-700 bg-blue-50/70 dark:bg-blue-900/20 p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        Active Codex Model
+                      </p>
+                      <span className="px-2 py-1 rounded-md bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-700 text-xs font-mono text-blue-800 dark:text-blue-300">
+                        {CODEX_MODEL_TARGET}
+                      </span>
                     </div>
-                  ))}
-                </div>
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">
+                      Claude tier selectors are disabled in Codex mode. Switch backend to Anthropic
+                      to customize per-feature model tiers.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {[
+                      {
+                        key: "analysis" as const,
+                        label: "Email Analysis",
+                        description: "Triaging which emails need replies",
+                      },
+                      {
+                        key: "drafts" as const,
+                        label: "Draft Generation",
+                        description: "Writing reply drafts",
+                      },
+                      {
+                        key: "refinement" as const,
+                        label: "Draft Refinement",
+                        description: "Improving drafts based on feedback",
+                      },
+                      {
+                        key: "calendaring" as const,
+                        label: "Scheduling Detection",
+                        description: "Identifying calendar-related emails",
+                      },
+                      {
+                        key: "archiveReady" as const,
+                        label: "Archive-Ready Analysis",
+                        description: "Detecting completed conversations",
+                      },
+                      {
+                        key: "senderLookup" as const,
+                        label: "Sender Lookup",
+                        description: "Web search for sender info",
+                      },
+                      {
+                        key: "agentDrafter" as const,
+                        label: "Agent Drafter",
+                        description: "Background auto-draft generation",
+                      },
+                      {
+                        key: "agentChat" as const,
+                        label: "Agent Chat",
+                        description: "Interactive agent sidebar conversations",
+                      },
+                    ].map(({ key, label, description }) => (
+                      <div
+                        key={key}
+                        className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700 last:border-0"
+                      >
+                        <div className="flex-1 min-w-0 mr-4">
+                          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                            {label}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">{description}</p>
+                        </div>
+                        <select
+                          value={modelConfig[key]}
+                          onChange={(e) => {
+                            const tier = e.target.value;
+                            if ((MODEL_TIERS as readonly string[]).includes(tier)) {
+                              setModelConfig((prev) => ({ ...prev, [key]: tier as ModelTier }));
+                            }
+                          }}
+                          className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-500 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        >
+                          {MODEL_TIERS.map((tier) => (
+                            <option key={tier} value={tier}>
+                              {MODEL_TIER_LABELS[tier]}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Updates */}

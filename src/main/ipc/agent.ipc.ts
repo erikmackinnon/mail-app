@@ -46,6 +46,11 @@ function isCodexCliAvailable(): boolean {
   return codexCliAvailable;
 }
 
+function formatCodexStatusDetails(stdout: string, stderr: string): string | undefined {
+  const details = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n");
+  return details || undefined;
+}
+
 export function registerAgentIpc(): void {
   ipcMain.handle(
     "agent:run",
@@ -321,18 +326,25 @@ export function registerAgentIpc(): void {
         }>((resolve) => {
           const env = { ...process.env };
           delete env.CLAUDECODE;
-          execFile("codex", ["login", "status"], { env, timeout: 10_000 }, (error, stdout) => {
-            if (error) {
-              resolve({ cliAvailable: true, authenticated: false });
-              return;
-            }
-            const details = stdout.trim();
-            resolve({
-              cliAvailable: true,
-              authenticated: details.toLowerCase().startsWith("logged in"),
-              details: details || undefined,
-            });
-          });
+          execFile(
+            "codex",
+            ["login", "status"],
+            { env, timeout: 10_000, encoding: "utf-8" },
+            (error, stdout, stderr) => {
+              const details = formatCodexStatusDetails(stdout, stderr);
+              if (error) {
+                resolve({ cliAvailable: true, authenticated: false, details });
+                return;
+              }
+              // Treat a successful status command as authenticated even if output
+              // format changes across codex-cli versions.
+              resolve({
+                cliAvailable: true,
+                authenticated: true,
+                details,
+              });
+            },
+          );
         });
 
         return { success: true, data: result };

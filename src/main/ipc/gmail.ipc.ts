@@ -21,13 +21,16 @@ async function hasCodexCliAuth(): Promise<boolean> {
   delete env.CLAUDECODE;
 
   return new Promise<boolean>((resolve) => {
-    execFile("codex", ["login", "status"], { timeout: 7000, encoding: "utf-8", env }, (error, stdout) => {
-      if (error) {
-        resolve(false);
-        return;
-      }
-      resolve(stdout.trim().toLowerCase().startsWith("logged in"));
-    });
+    execFile(
+      "codex",
+      ["login", "status"],
+      { timeout: 7000, encoding: "utf-8", env },
+      (error) => {
+        // Treat a successful status command as authenticated even if output
+        // wording changes across codex-cli versions.
+        resolve(!error);
+      },
+    );
   });
 }
 

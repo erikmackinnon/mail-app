@@ -5,7 +5,7 @@ import {
 } from "../../src/main/services/llm-service";
 
 test.describe("llm-service codex hardening", () => {
-  test("uses isolated workspace and non-permissive approval mode", () => {
+  test("uses isolated workspace and non-interactive approval mode", () => {
     const args = _buildCodexExecArgs("/tmp/out.txt", "/tmp/workspace");
 
     expect(args).toContain("exec");
@@ -16,8 +16,8 @@ test.describe("llm-service codex hardening", () => {
     expect(args).toContain("--sandbox");
     expect(args).toContain("read-only");
     expect(args).toContain("--ask-for-approval");
-    expect(args).toContain("untrusted");
-    expect(args).not.toContain("never");
+    expect(args).toContain("never");
+    expect(args).not.toContain("untrusted");
   });
 
   test("injects safety constraints into codex prompt", () => {
