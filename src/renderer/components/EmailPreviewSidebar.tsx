@@ -252,7 +252,7 @@ export const EmailPreviewSidebar = memo(function EmailPreviewSidebar() {
     const timeoutId = setTimeout(() => {
       api.agent
         .getTrace(taskId)
-        .then((result) => {
+        .then(async (result) => {
           if (!result.success || !result.data?.events.length) return;
           // Guard: user may have switched emails during the async IPC call
           if (useAppStore.getState().selectedEmailId !== emailIdSnapshot) return;
@@ -270,11 +270,24 @@ export const EmailPreviewSidebar = memo(function EmailPreviewSidebar() {
             ),
           );
 
+          const fallbackProviderResult = (await window.api.agent.defaultProvider?.()) as
+            | { success: boolean; data?: { providerId: string } }
+            | undefined;
+          const backendResult = (await window.api.settings.get()) as
+            | { success: boolean; data?: { llmBackend?: "anthropic" | "codex" } }
+            | undefined;
+          const fallbackProviderId =
+            fallbackProviderResult?.success && fallbackProviderResult.data?.providerId
+              ? fallbackProviderResult.data.providerId
+              : backendResult?.success && backendResult.data?.llmBackend === "codex"
+                ? "codex"
+                : "claude";
+
           // Replay entire trace in a single store update (avoids O(n²) from N appendAgentEvent calls)
           replayAgentTrace(
             taskId,
             email.id,
-            providerIds.length > 0 ? providerIds : ["claude"],
+            providerIds.length > 0 ? providerIds : [fallbackProviderId],
             "",
             {
               accountId: email.accountId || "",

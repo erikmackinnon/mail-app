@@ -9,8 +9,8 @@ import type {
 
 /**
  * Codex provider placeholder.
- * Interactive agent orchestration still runs on Claude Agent SDK; this provider
- * intentionally fails fast so we never silently delegate to a different runtime.
+ * Interactive Codex agent orchestration is not implemented yet. This provider
+ * intentionally fails fast so we never silently delegate to another runtime.
  */
 export class CodexAgentProvider implements AgentProvider {
   readonly config: AgentProviderConfig = {
@@ -23,8 +23,7 @@ export class CodexAgentProvider implements AgentProvider {
   constructor(_frameworkConfig: AgentFrameworkConfig) {}
 
   async *run(_params: AgentRunParams): AsyncGenerator<AgentEvent, AgentRunResult, void> {
-    const message =
-      "Codex interactive agent runtime is not available yet. Use the Claude provider for agent tasks.";
+    const message = "Codex interactive agent runtime is not available yet.";
     yield { type: "error", message };
     return { state: "failed" };
   }

@@ -24,6 +24,7 @@ const ZERO_USAGE = {
   cache_read_input_tokens: 0,
   cache_creation_input_tokens: 0,
 };
+const CODEX_MODEL_ID = "gpt-5.4-mini-high";
 
 export async function createMessage(
   params: MessageCreateParamsNonStreaming,
@@ -118,6 +119,8 @@ async function runCodexMessage(
 export function _buildCodexExecArgs(outputPath: string, workspaceDir: string): string[] {
   return [
     "exec",
+    "--model",
+    CODEX_MODEL_ID,
     "--cd",
     workspaceDir,
     "--skip-git-repo-check",

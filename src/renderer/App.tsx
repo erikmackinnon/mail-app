@@ -594,6 +594,7 @@ async function prefetchEmailBodies(emailIds: string[]): Promise<void> {
 }
 
 export default function App() {
+  const defaultAgentProviderRef = useRef<"claude" | "codex">("claude");
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -704,9 +705,11 @@ export default function App() {
           undoSendDelay?: number;
           keyboardBindings?: "superhuman" | "gmail";
           posthog?: { enabled: boolean; sessionReplay?: boolean };
+          llmBackend?: "anthropic" | "codex";
         };
       }) => {
         if (result.success && result.data) {
+          defaultAgentProviderRef.current = result.data.llmBackend === "codex" ? "codex" : "claude";
           if (result.data.inboxDensity) {
             setInboxDensity(result.data.inboxDensity);
           }
@@ -1087,7 +1090,7 @@ export default function App() {
             // Save sidebar tab — startAgentTask unconditionally sets it to "agent",
             // but background auto-drafts shouldn't steal focus from the user
             const prevTab = store.sidebarTab;
-            const inferredProviderId = event.providerId ?? "claude";
+            const inferredProviderId = event.providerId ?? defaultAgentProviderRef.current;
             store.startAgentTask(taskId, emailId, [inferredProviderId], "", {
               accountId: email.accountId || "",
               currentEmailId: emailId,

@@ -137,20 +137,6 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
           setError(codexLoginResult.data?.error || codexLoginResult.error || "Codex login failed");
           return;
         }
-
-        const claudeLoginResult = (await window.api.agent.claudeLogin()) as {
-          success: boolean;
-          data?: { success: boolean; error?: string };
-          error?: string;
-        };
-        if (!claudeLoginResult.success || !claudeLoginResult.data?.success) {
-          setError(
-            claudeLoginResult.data?.error ||
-              claudeLoginResult.error ||
-              "Claude login failed (required for agent tasks)",
-          );
-          return;
-        }
       } else {
         if (!apiKey.trim()) {
           setError("Please enter your Anthropic API key");
@@ -402,7 +388,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
               </h2>
               <p className="text-gray-600 dark:text-gray-400 mb-6">
                 {llmBackend === "codex"
-                  ? "Exo uses Codex for backend generation and Claude for interactive agent runtime. Sign in to both to continue."
+                  ? "Exo uses Codex for LLM tasks in Codex mode. Sign in to Codex to continue."
                   : "Exo uses Claude to analyze your emails, generate drafts, and look up sender information. You'll need an Anthropic API key to enable these features."}
               </p>
 
@@ -412,7 +398,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                 </h3>
                 {llmBackend === "codex" ? (
                   <p className="text-sm text-blue-800 dark:text-blue-300">
-                    Continue to run both the Codex CLI and Claude CLI login flows.
+                    Continue to run the Codex CLI login flow.
                   </p>
                 ) : (
                   <ol className="text-sm text-blue-800 dark:text-blue-300 space-y-2 list-decimal list-inside">
@@ -462,7 +448,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                 disabled={isLoading || (llmBackend !== "codex" && !apiKey.trim())}
                 className="w-full py-3 bg-blue-600 dark:bg-blue-500 text-white font-medium rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:opacity-50"
               >
-                {isLoading ? "Saving..." : llmBackend === "codex" ? "Login with Codex + Claude" : "Continue"}
+                {isLoading ? "Saving..." : llmBackend === "codex" ? "Login with Codex" : "Continue"}
               </button>
             </>
           )}

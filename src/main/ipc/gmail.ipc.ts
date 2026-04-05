@@ -31,31 +31,6 @@ async function hasCodexCliAuth(): Promise<boolean> {
   });
 }
 
-async function hasClaudeCliAuth(): Promise<boolean> {
-  const env = { ...process.env };
-  delete env.CLAUDECODE;
-
-  return new Promise<boolean>((resolve) => {
-    execFile(
-      "claude",
-      ["auth", "status", "--json"],
-      { timeout: 10_000, encoding: "utf-8", env },
-      (error, stdout) => {
-        if (error) {
-          resolve(false);
-          return;
-        }
-        try {
-          const parsed = JSON.parse(stdout.trim()) as { loggedIn?: boolean };
-          resolve(Boolean(parsed.loggedIn));
-        } catch {
-          resolve(false);
-        }
-      },
-    );
-  });
-}
-
 function resolveTargetAccountId(accountId?: string): string {
   const trimmedAccountId = accountId?.trim();
   const accounts = getAccounts();
@@ -120,10 +95,7 @@ export function registerGmailIpc(): void {
         const config = getConfig();
         const llmBackend = resolveLlmBackend(config.llmBackend);
         const hasAnthropicKey = !!(process.env.ANTHROPIC_API_KEY || config.anthropicApiKey);
-        const hasLlmAuth =
-          llmBackend === "codex"
-            ? (await hasCodexCliAuth()) && (await hasClaudeCliAuth())
-            : hasAnthropicKey;
+        const hasLlmAuth = llmBackend === "codex" ? await hasCodexCliAuth() : hasAnthropicKey;
         return {
           success: true,
           data: {

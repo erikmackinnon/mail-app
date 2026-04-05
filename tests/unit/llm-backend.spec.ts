@@ -34,8 +34,8 @@ test.describe("llm-backend routing", () => {
     expect(getActiveLlmBackend()).toBe("anthropic");
   });
 
-  test("routes interactive agents to claude for every backend", () => {
+  test("routes default interactive provider by backend", () => {
     expect(getDefaultAgentProviderIdForBackend("anthropic")).toBe("claude");
-    expect(getDefaultAgentProviderIdForBackend("codex")).toBe("claude");
+    expect(getDefaultAgentProviderIdForBackend("codex")).toBe("codex");
   });
 });

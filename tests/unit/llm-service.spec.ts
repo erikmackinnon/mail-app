@@ -9,6 +9,8 @@ test.describe("llm-service codex hardening", () => {
     const args = _buildCodexExecArgs("/tmp/out.txt", "/tmp/workspace");
 
     expect(args).toContain("exec");
+    expect(args).toContain("--model");
+    expect(args).toContain("gpt-5.4-mini-high");
     expect(args).toContain("--cd");
     expect(args).toContain("/tmp/workspace");
     expect(args).toContain("--sandbox");

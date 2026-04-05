@@ -221,6 +221,21 @@ export function AgentCommandPalette({ isOpen, onClose }: AgentCommandPaletteProp
     return allActions.filter((a) => fuzzyMatch(a.label, query));
   }, [query, suggestedActions, quickActions]);
 
+  const resolveConfiguredDefaultProvider = useCallback(async (): Promise<string> => {
+    try {
+      const result = (await window.api.settings.get()) as {
+        success: boolean;
+        data?: { llmBackend?: "anthropic" | "codex" };
+      };
+      if (result.success && result.data?.llmBackend === "codex") {
+        return "codex";
+      }
+    } catch {
+      // Fall through to Claude default for non-Codex mode or IPC failures.
+    }
+    return "claude";
+  }, []);
+
   // When the palette opens, fetch real provider list from the backend if we don't have one yet.
   // Also auto-select a default provider when nothing is selected.
   useEffect(() => {
@@ -229,15 +244,15 @@ export function AgentCommandPalette({ isOpen, onClose }: AgentCommandPaletteProp
     if (selectedAgentIds.length === 0) {
       window.api.agent
         .defaultProvider?.()
-        .then((result: { success: boolean; data?: { providerId: string } }) => {
+        .then(async (result: { success: boolean; data?: { providerId: string } }) => {
           if (result.success && result.data?.providerId) {
             setSelectedAgentIds([result.data.providerId]);
           } else {
-            setSelectedAgentIds([availableProviders[0]?.id ?? "claude"]);
+            setSelectedAgentIds([await resolveConfiguredDefaultProvider()]);
           }
         })
-        .catch(() => {
-          setSelectedAgentIds([availableProviders[0]?.id ?? "claude"]);
+        .catch(async () => {
+          setSelectedAgentIds([await resolveConfiguredDefaultProvider()]);
         });
     }
 
@@ -252,6 +267,7 @@ export function AgentCommandPalette({ isOpen, onClose }: AgentCommandPaletteProp
     availableProviders.length,
     setSelectedAgentIds,
     setAvailableProviders,
+    resolveConfiguredDefaultProvider,
   ]);
 
   // Reset state when opened/closed

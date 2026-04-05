@@ -750,6 +750,19 @@ export const AgentTabContent = memo(function AgentTabContent({ emailId }: { emai
 
       if (result?.success && result.data) {
         const { taskId } = result.data;
+        const defaultProviderResult = (await window.api.agent.defaultProvider?.()) as
+          | { success: boolean; data?: { providerId: string } }
+          | undefined;
+        const backendResult = (await window.api.settings.get()) as
+          | { success: boolean; data?: { llmBackend?: "anthropic" | "codex" } }
+          | undefined;
+        const fallbackProviderId =
+          defaultProviderResult?.success && defaultProviderResult.data?.providerId
+            ? defaultProviderResult.data.providerId
+            : backendResult?.success && backendResult.data?.llmBackend === "codex"
+              ? "codex"
+              : "claude";
+
         // Create the in-memory tracking entry so the Agent tab shows live events.
         // The real context is built by buildAgentDraftContext on the backend — this
         // is only for the store's tracking entry.
@@ -757,7 +770,7 @@ export const AgentTabContent = memo(function AgentTabContent({ emailId }: { emai
         startAgentTask(
           taskId,
           emailId,
-          task?.providerIds ?? ["claude"],
+          task?.providerIds ?? [fallbackProviderId],
           task?.prompt || "",
           task?.context || {
             accountId: email?.accountId || "",

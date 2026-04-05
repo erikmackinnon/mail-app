@@ -21,10 +21,7 @@ export function getActiveLlmBackend(): LlmBackend {
 }
 
 export function getDefaultAgentProviderIdForBackend(backend: LlmBackend): "claude" | "codex" {
-  // Interactive agent tasks currently run on Claude Agent SDK for all backends.
-  // Keep provider routing aligned with the runtime that actually executes.
-  void backend;
-  return "claude";
+  return backend === "codex" ? "codex" : "claude";
 }
 
 export function getDefaultAgentProviderId(): "claude" | "codex" {
