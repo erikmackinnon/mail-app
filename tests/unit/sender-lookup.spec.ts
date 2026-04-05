@@ -654,7 +654,7 @@ test.describe("cache key computation", () => {
   });
 
   test("codex lookup request omits anthropic web_search tool config", () => {
-    const req = buildLookupRequest("codex", "gpt-5.4-mini-high", "Alice", "alice@acme.com");
+    const req = buildLookupRequest("codex", "gpt-5.4-mini", "Alice", "alice@acme.com");
     expect(req.tools).toBeUndefined();
     expect(req.messages[0].content).toContain('Search query to start with: "Alice" acme linkedin');
   });

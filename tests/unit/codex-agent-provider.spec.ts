@@ -12,6 +12,8 @@ const FULL_CAPABILITIES: CodexExecCapabilities = {
   supportsSearchFlag: true,
   supportsAskForApprovalFlag: true,
   supportsOutputLastMessageFlag: true,
+  supportsReasoningEffortFlag: true,
+  supportsReasoningFlag: false,
 };
 
 function makeRunParams(taskId = "task-1"): AgentRunParams {
@@ -44,9 +46,11 @@ test.describe("CodexAgentProvider", () => {
   test("omits unsupported optional codex exec flags by default", () => {
     const args = _buildCodexAgentExecArgs("/tmp/out.txt", "/tmp/workspace");
     expect(args).toContain("--model");
-    expect(args).toContain("gpt-5.4-mini-high");
+    expect(args).toContain("gpt-5.4-mini");
     expect(args).toContain("--sandbox");
     expect(args).toContain("read-only");
+    expect(args).not.toContain("--reasoning-effort");
+    expect(args).not.toContain("--reasoning");
     expect(args).not.toContain("--ask-for-approval");
     expect(args).not.toContain("--output-last-message");
   });
@@ -55,6 +59,8 @@ test.describe("CodexAgentProvider", () => {
     const args = _buildCodexAgentExecArgs("/tmp/out.txt", "/tmp/workspace", {
       capabilities: FULL_CAPABILITIES,
     });
+    expect(args).toContain("--reasoning-effort");
+    expect(args).toContain("high");
     expect(args).toContain("--ask-for-approval");
     expect(args).toContain("never");
     expect(args).toContain("--output-last-message");

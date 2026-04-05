@@ -9,6 +9,8 @@ const FULL_CAPABILITIES: CodexExecCapabilities = {
   supportsSearchFlag: true,
   supportsAskForApprovalFlag: true,
   supportsOutputLastMessageFlag: true,
+  supportsReasoningEffortFlag: true,
+  supportsReasoningFlag: false,
 };
 
 test.describe("llm-service codex hardening", () => {
@@ -17,11 +19,13 @@ test.describe("llm-service codex hardening", () => {
 
     expect(args).toContain("exec");
     expect(args).toContain("--model");
-    expect(args).toContain("gpt-5.4-mini-high");
+    expect(args).toContain("gpt-5.4-mini");
     expect(args).toContain("--cd");
     expect(args).toContain("/tmp/workspace");
     expect(args).toContain("--sandbox");
     expect(args).toContain("read-only");
+    expect(args).not.toContain("--reasoning-effort");
+    expect(args).not.toContain("--reasoning");
     expect(args).not.toContain("--ask-for-approval");
     expect(args).not.toContain("--output-last-message");
     expect(args).not.toContain("untrusted");
@@ -35,6 +39,8 @@ test.describe("llm-service codex hardening", () => {
     });
     expect(args[0]).toBe("--search");
     expect(args).toContain("exec");
+    expect(args).toContain("--reasoning-effort");
+    expect(args).toContain("high");
     expect(args).toContain("--ask-for-approval");
     expect(args).toContain("never");
     expect(args).toContain("--output-last-message");

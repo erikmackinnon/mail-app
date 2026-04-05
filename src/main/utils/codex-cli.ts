@@ -4,22 +4,33 @@ export interface CodexExecCapabilities {
   supportsSearchFlag: boolean;
   supportsAskForApprovalFlag: boolean;
   supportsOutputLastMessageFlag: boolean;
+  supportsReasoningEffortFlag: boolean;
+  supportsReasoningFlag: boolean;
 }
 
 const DEFAULT_CAPABILITIES: CodexExecCapabilities = {
   supportsSearchFlag: false,
   supportsAskForApprovalFlag: false,
   supportsOutputLastMessageFlag: false,
+  supportsReasoningEffortFlag: false,
+  supportsReasoningFlag: false,
 };
 
 let cachedCapabilities: CodexExecCapabilities | null = null;
 
+function hasFlag(helpText: string, flag: string): boolean {
+  const escapedFlag = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`${escapedFlag}(?:[\\s,<]|$)`, "i");
+  return pattern.test(helpText);
+}
+
 export function _parseCodexExecHelp(helpText: string): CodexExecCapabilities {
-  const normalized = helpText.toLowerCase();
   return {
-    supportsSearchFlag: normalized.includes("--search"),
-    supportsAskForApprovalFlag: normalized.includes("--ask-for-approval"),
-    supportsOutputLastMessageFlag: normalized.includes("--output-last-message"),
+    supportsSearchFlag: hasFlag(helpText, "--search"),
+    supportsAskForApprovalFlag: hasFlag(helpText, "--ask-for-approval"),
+    supportsOutputLastMessageFlag: hasFlag(helpText, "--output-last-message"),
+    supportsReasoningEffortFlag: hasFlag(helpText, "--reasoning-effort"),
+    supportsReasoningFlag: hasFlag(helpText, "--reasoning"),
   };
 }
 
@@ -60,6 +71,7 @@ export interface BuildCodexExecArgsOptions {
   workspaceDir: string;
   outputPath?: string;
   enableWebSearch?: boolean;
+  reasoningEffort?: "minimal" | "low" | "medium" | "high";
   capabilities?: CodexExecCapabilities;
 }
 
@@ -81,6 +93,14 @@ export function buildCodexExecArgs(options: BuildCodexExecArgsOptions): string[]
     "--sandbox",
     "read-only",
   );
+
+  if (options.reasoningEffort) {
+    if (capabilities.supportsReasoningEffortFlag) {
+      args.push("--reasoning-effort", options.reasoningEffort);
+    } else if (capabilities.supportsReasoningFlag) {
+      args.push("--reasoning", options.reasoningEffort);
+    }
+  }
 
   if (capabilities.supportsAskForApprovalFlag) {
     args.push("--ask-for-approval", "never");

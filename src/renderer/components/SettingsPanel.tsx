@@ -31,7 +31,7 @@ interface SettingsPanelProps {
   initialTab?: SettingsTab;
 }
 
-const CODEX_MODEL_TARGET = "gpt-5.4-mini-high";
+const CODEX_MODEL_TARGET = "gpt-5.4-mini";
 
 export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   const queryClient = useQueryClient();
@@ -1155,8 +1155,8 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                       </span>
                     </div>
                     <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">
-                      Claude tier selectors are disabled in Codex mode. Switch backend to Anthropic
-                      to customize per-feature model tiers.
+                      Codex runs use high reasoning effort when the installed Codex CLI supports a
+                      reasoning flag. Claude tier selectors are disabled in Codex mode.
                     </p>
                   </div>
                 ) : (

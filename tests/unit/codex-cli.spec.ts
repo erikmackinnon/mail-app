@@ -11,12 +11,15 @@ test.describe("codex cli compatibility", () => {
 Usage: codex exec [OPTIONS] [PROMPT]
   --search
   --output-last-message <FILE>
+  --reasoning-effort <EFFORT>
 `);
 
     expect(capabilities).toEqual({
       supportsSearchFlag: true,
       supportsAskForApprovalFlag: false,
       supportsOutputLastMessageFlag: true,
+      supportsReasoningEffortFlag: true,
+      supportsReasoningFlag: false,
     });
   });
 
@@ -25,20 +28,23 @@ Usage: codex exec [OPTIONS] [PROMPT]
       supportsSearchFlag: false,
       supportsAskForApprovalFlag: false,
       supportsOutputLastMessageFlag: false,
+      supportsReasoningEffortFlag: false,
+      supportsReasoningFlag: false,
     };
 
     const args = buildCodexExecArgs({
-      model: "gpt-5.4-mini-high",
+      model: "gpt-5.4-mini",
       workspaceDir: "/tmp/workspace",
       outputPath: "/tmp/out.txt",
       enableWebSearch: true,
+      reasoningEffort: "high",
       capabilities: unsupported,
     });
 
     expect(args).toEqual([
       "exec",
       "--model",
-      "gpt-5.4-mini-high",
+      "gpt-5.4-mini",
       "--cd",
       "/tmp/workspace",
       "--skip-git-repo-check",
@@ -53,13 +59,16 @@ Usage: codex exec [OPTIONS] [PROMPT]
       supportsSearchFlag: true,
       supportsAskForApprovalFlag: true,
       supportsOutputLastMessageFlag: true,
+      supportsReasoningEffortFlag: true,
+      supportsReasoningFlag: false,
     };
 
     const args = buildCodexExecArgs({
-      model: "gpt-5.4-mini-high",
+      model: "gpt-5.4-mini",
       workspaceDir: "/tmp/workspace",
       outputPath: "/tmp/out.txt",
       enableWebSearch: true,
+      reasoningEffort: "high",
       capabilities: supported,
     });
 
@@ -67,17 +76,40 @@ Usage: codex exec [OPTIONS] [PROMPT]
       "--search",
       "exec",
       "--model",
-      "gpt-5.4-mini-high",
+      "gpt-5.4-mini",
       "--cd",
       "/tmp/workspace",
       "--skip-git-repo-check",
       "--sandbox",
       "read-only",
+      "--reasoning-effort",
+      "high",
       "--ask-for-approval",
       "never",
       "--output-last-message",
       "/tmp/out.txt",
       "-",
     ]);
+  });
+
+  test("falls back to --reasoning when only legacy flag is supported", () => {
+    const supportedLegacy: CodexExecCapabilities = {
+      supportsSearchFlag: false,
+      supportsAskForApprovalFlag: false,
+      supportsOutputLastMessageFlag: false,
+      supportsReasoningEffortFlag: false,
+      supportsReasoningFlag: true,
+    };
+
+    const args = buildCodexExecArgs({
+      model: "gpt-5.4-mini",
+      workspaceDir: "/tmp/workspace",
+      reasoningEffort: "high",
+      capabilities: supportedLegacy,
+    });
+
+    expect(args).toContain("--reasoning");
+    expect(args).toContain("high");
+    expect(args).not.toContain("--reasoning-effort");
   });
 });

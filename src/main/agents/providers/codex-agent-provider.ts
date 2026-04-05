@@ -16,7 +16,8 @@ import {
   type CodexExecCapabilities,
 } from "../../utils/codex-cli";
 
-const CODEX_AGENT_MODEL = "gpt-5.4-mini-high";
+const CODEX_AGENT_MODEL = "gpt-5.4-mini";
+const CODEX_AGENT_REASONING_EFFORT = "high" as const;
 const CODEX_AGENT_TIMEOUT_MS = 180_000;
 
 export interface CodexAgentRunInput {
@@ -37,6 +38,7 @@ export function _buildCodexAgentExecArgs(
 ): string[] {
   return buildCodexExecArgs({
     model: CODEX_AGENT_MODEL,
+    reasoningEffort: CODEX_AGENT_REASONING_EFFORT,
     workspaceDir,
     outputPath,
     capabilities: options.capabilities,

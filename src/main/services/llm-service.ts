@@ -29,7 +29,8 @@ const ZERO_USAGE = {
   cache_read_input_tokens: 0,
   cache_creation_input_tokens: 0,
 };
-const CODEX_MODEL_ID = "gpt-5.4-mini-high";
+const CODEX_MODEL_ID = "gpt-5.4-mini";
+const CODEX_REASONING_EFFORT = "high" as const;
 const CODEX_WEB_SEARCH_CALLERS = new Set(["web-search-sender-lookup"]);
 
 export async function createMessage(
@@ -149,6 +150,7 @@ export function _buildCodexExecArgs(
 ): string[] {
   return buildCodexExecArgs({
     model: CODEX_MODEL_ID,
+    reasoningEffort: CODEX_REASONING_EFFORT,
     workspaceDir,
     outputPath,
     enableWebSearch: options.enableWebSearch,
