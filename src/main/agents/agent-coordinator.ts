@@ -223,7 +223,14 @@ export class AgentCoordinator {
     const browser = appConfig.agentBrowser;
     const baseConfig: AgentFrameworkConfig = {
       model: getModelIdForFeature("agentDrafter"),
+      llmBackend: appConfig.llmBackend ?? "anthropic",
       anthropicApiKey: apiKey,
+      openaiCompatible: appConfig.openaiCompatible
+        ? {
+            baseUrl: appConfig.openaiCompatible.baseUrl,
+            apiKey: appConfig.openaiCompatible.apiKey,
+          }
+        : undefined,
       browserConfig: browser
         ? {
             enabled: browser.enabled,
@@ -255,14 +262,22 @@ export class AgentCoordinator {
       this.workerReady = this.workerReady.then(() => {
         for (const [providerId, providerPath] of this.installedProviders) {
           log.info(`[AgentCoordinator] Re-loading installed provider on respawn: ${providerId}`);
+          const cfg = getConfig();
           this.sendToWorker({
             type: "load_provider",
             providerId,
             providerPath,
             config: {
               model: getModelIdForFeature("agentDrafter"),
+              llmBackend: cfg.llmBackend ?? "anthropic",
               anthropicApiKey:
-                getConfig().anthropicApiKey || process.env.ANTHROPIC_API_KEY || undefined,
+                cfg.anthropicApiKey || process.env.ANTHROPIC_API_KEY || undefined,
+              openaiCompatible: cfg.openaiCompatible
+                ? {
+                    baseUrl: cfg.openaiCompatible.baseUrl,
+                    apiKey: cfg.openaiCompatible.apiKey,
+                  }
+                : undefined,
             },
           });
         }
@@ -500,7 +515,14 @@ export class AgentCoordinator {
     const appConfig = getConfig();
     const config: AgentFrameworkConfig = {
       model: getModelIdForFeature("agentDrafter"),
+      llmBackend: appConfig.llmBackend ?? "anthropic",
       anthropicApiKey: appConfig.anthropicApiKey || process.env.ANTHROPIC_API_KEY || undefined,
+      openaiCompatible: appConfig.openaiCompatible
+        ? {
+            baseUrl: appConfig.openaiCompatible.baseUrl,
+            apiKey: appConfig.openaiCompatible.apiKey,
+          }
+        : undefined,
     };
     this.sendToWorker({ type: "config_update", config });
 

@@ -350,7 +350,14 @@ export function registerExtensionsIpc(): void {
         const appConfig = getConfig();
         const baseConfig = {
           model: getModelIdForFeature("agentDrafter"),
+          llmBackend: appConfig.llmBackend ?? "anthropic",
           anthropicApiKey: appConfig.anthropicApiKey || process.env.ANTHROPIC_API_KEY || undefined,
+          openaiCompatible: appConfig.openaiCompatible
+            ? {
+                baseUrl: appConfig.openaiCompatible.baseUrl,
+                apiKey: appConfig.openaiCompatible.apiKey,
+              }
+            : undefined,
         };
         const enrichedConfig = await populatePrivateProviderConfig(baseConfig);
         agentCoordinator.updateConfig(enrichedConfig);

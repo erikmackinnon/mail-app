@@ -210,6 +210,12 @@ const api = {
       ipcRenderer.invoke("settings:set", config),
     validateApiKey: (apiKey: string): Promise<unknown> =>
       ipcRenderer.invoke("settings:validate-api-key", { apiKey }),
+    validateOpenAICompatible: (
+      baseUrl: string,
+      apiKey?: string,
+      model?: string,
+    ): Promise<unknown> =>
+      ipcRenderer.invoke("settings:validate-openai-compatible", { baseUrl, apiKey, model }),
     getPrompts: (): Promise<unknown> => ipcRenderer.invoke("settings:get-prompts"),
     setPrompts: (prompts: {
       analysisPrompt?: string;

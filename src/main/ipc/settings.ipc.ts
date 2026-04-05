@@ -7,18 +7,27 @@ import {
   type ThemePreference,
   type ModelConfig,
   type ModelTier,
+  type LlmBackend,
+  type OpenAICompatibleConfig,
+  type OpenAICompatibleModelConfig,
   DEFAULT_ANALYSIS_PROMPT,
   DEFAULT_DRAFT_PROMPT,
   DEFAULT_ARCHIVE_READY_PROMPT,
   DEFAULT_STYLE_PROMPT,
   DEFAULT_AGENT_DRAFTER_PROMPT,
   DEFAULT_MODEL_CONFIG,
+  DEFAULT_OPENAI_COMPATIBLE_MODEL_CONFIG,
   MODEL_TIER_IDS,
   resolveModelId,
 } from "../../shared/types";
 import { resetAnalyzer } from "./analysis.ipc";
 import { resetArchiveReadyAnalyzer } from "./archive-ready.ipc";
-import { resetClient, getUsageStats, getCallHistory } from "../services/anthropic-service";
+import {
+  resetClient,
+  getUsageStats,
+  getCallHistory,
+  setLlmRuntimeConfig,
+} from "../services/anthropic-service";
 import { prefetchService } from "../services/prefetch-service";
 import { agentCoordinator } from "../agents/agent-coordinator";
 import {
@@ -49,6 +58,7 @@ function getStore(): Store<{ config: Config }> {
       defaults: {
         config: {
           maxEmails: 50,
+          llmBackend: "anthropic" as const,
           model: "claude-sonnet-4-20250514",
           modelConfig: DEFAULT_MODEL_CONFIG,
           dryRun: false,
@@ -122,10 +132,30 @@ export function getModelConfig(): ModelConfig {
   return { ...DEFAULT_MODEL_CONFIG, ...config.modelConfig };
 }
 
+export function getLlmBackend(): LlmBackend {
+  return getConfig().llmBackend ?? "anthropic";
+}
+
+export function getOpenAICompatibleConfig(): OpenAICompatibleConfig | undefined {
+  return getConfig().openaiCompatible;
+}
+
+export function getOpenAICompatibleModelConfig(): OpenAICompatibleModelConfig {
+  const cfg = getOpenAICompatibleConfig();
+  return { ...DEFAULT_OPENAI_COMPATIBLE_MODEL_CONFIG, ...cfg?.modelConfig };
+}
+
+export function getPreferredAgentProviderId(): string {
+  return getLlmBackend() === "openai_compatible" ? "openai-compatible" : "claude";
+}
+
 /** Resolve the concrete model ID for a given feature. */
 export function getModelIdForFeature(feature: keyof ModelConfig): string {
-  const mc = getModelConfig();
-  return resolveModelId(mc[feature]);
+  if (getLlmBackend() === "openai_compatible") {
+    return getOpenAICompatibleModelConfig()[feature];
+  }
+  const modelConfig = getModelConfig();
+  return resolveModelId(modelConfig[feature]);
 }
 
 export function registerSettingsIpc(): void {
@@ -136,13 +166,7 @@ export function registerSettingsIpc(): void {
       try {
         const Anthropic = (await import("@anthropic-ai/sdk")).default;
 
-        // Resolve model with fallback so config errors don't block validation
-        let model: string;
-        try {
-          model = getModelIdForFeature("senderLookup");
-        } catch {
-          model = "claude-haiku-4-5-20251001";
-        }
+        const model = "claude-haiku-4-5-20251001";
 
         const client = new Anthropic({ apiKey, timeout: 10_000 });
         await client.messages.create({
@@ -172,6 +196,123 @@ export function registerSettingsIpc(): void {
     },
   );
 
+  // Validate an OpenAI-compatible endpoint with a minimal chat.completions call
+  ipcMain.handle(
+    "settings:validate-openai-compatible",
+    async (
+      _,
+      {
+        baseUrl,
+        apiKey,
+        model,
+      }: { baseUrl: string; apiKey?: string; model?: string },
+    ): Promise<IpcResponse<{ agentSupported: boolean; agentMessage?: string }>> => {
+      try {
+        const normalizedBase = baseUrl.replace(/\/+$/, "");
+        const endpoint = `${normalizedBase}/chat/completions`;
+        const resolvedModel =
+          model?.trim() || getOpenAICompatibleModelConfig().senderLookup || "gpt-4o-mini";
+
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+        };
+        if (apiKey?.trim()) {
+          headers.Authorization = `Bearer ${apiKey.trim()}`;
+        }
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10_000);
+        try {
+          const resp = await fetch(endpoint, {
+            method: "POST",
+            headers,
+            signal: controller.signal,
+            body: JSON.stringify({
+              model: resolvedModel,
+              max_tokens: 1,
+              messages: [{ role: "user", content: "ping" }],
+            }),
+          });
+          if (!resp.ok) {
+            const text = await resp.text().catch(() => "");
+            const msg = text ? text.slice(0, 200) : `HTTP ${resp.status}`;
+            return { success: false, error: `Endpoint validation failed: ${msg}` };
+          }
+        } finally {
+          clearTimeout(timeout);
+        }
+
+        let agentSupported = true;
+        let agentMessage: string | undefined;
+        try {
+          const streamResp = await fetch(endpoint, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              model: resolvedModel,
+              stream: true,
+              max_tokens: 1,
+              messages: [{ role: "user", content: "ping" }],
+            }),
+          });
+          if (!streamResp.ok) {
+            agentSupported = false;
+            const text = await streamResp.text().catch(() => "");
+            agentMessage = `Streaming unsupported: ${text || `HTTP ${streamResp.status}`}`;
+          } else {
+            const toolsResp = await fetch(endpoint, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                model: resolvedModel,
+                max_tokens: 8,
+                messages: [{ role: "user", content: "Call the capability_probe tool." }],
+                tools: [
+                  {
+                    type: "function",
+                    function: {
+                      name: "capability_probe",
+                      description: "Capability probe tool",
+                      parameters: {
+                        type: "object",
+                        properties: {},
+                        additionalProperties: false,
+                      },
+                    },
+                  },
+                ],
+                tool_choice: { type: "function", function: { name: "capability_probe" } },
+              }),
+            });
+            if (!toolsResp.ok) {
+              agentSupported = false;
+              const text = await toolsResp.text().catch(() => "");
+              agentMessage = `Tool-calling unsupported: ${text || `HTTP ${toolsResp.status}`}`;
+            } else {
+              const payload = (await toolsResp.json()) as { choices?: Array<{ message?: unknown }> };
+              const toolCalls = (payload.choices?.[0]?.message as { tool_calls?: unknown })
+                ?.tool_calls;
+              if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+                agentSupported = false;
+                agentMessage =
+                  "Endpoint responded but model did not emit a tool call. Choose a model that supports function calling.";
+              }
+            }
+          }
+        } catch (err) {
+          agentSupported = false;
+          agentMessage =
+            err instanceof Error ? err.message : "Failed capability probe for agent support";
+        }
+
+        return { success: true, data: { agentSupported, agentMessage } };
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Unknown error";
+        return { success: false, error: `Endpoint validation failed: ${msg}` };
+      }
+    },
+  );
+
   // Get current config
   ipcMain.handle("settings:get", async (): Promise<IpcResponse<Config>> => {
     try {
@@ -190,6 +331,10 @@ export function registerSettingsIpc(): void {
       const currentConfig = getConfig();
       const newConfig = { ...currentConfig, ...config };
       getStore().set("config", newConfig);
+      setLlmRuntimeConfig({
+        llmBackend: newConfig.llmBackend ?? "anthropic",
+        openaiCompatible: newConfig.openaiCompatible,
+      });
 
       // If githubToken changed, propagate to auto-updater immediately
       if ("githubToken" in config) {
@@ -215,6 +360,18 @@ export function registerSettingsIpc(): void {
         }
         agentCoordinator.updateConfig({
           anthropicApiKey: newConfig.anthropicApiKey || undefined,
+        });
+      }
+
+      if ("llmBackend" in config || "openaiCompatible" in config) {
+        agentCoordinator.updateConfig({
+          llmBackend: newConfig.llmBackend ?? "anthropic",
+          openaiCompatible: newConfig.openaiCompatible
+            ? {
+                baseUrl: newConfig.openaiCompatible.baseUrl,
+                apiKey: newConfig.openaiCompatible.apiKey,
+              }
+            : undefined,
         });
       }
 
@@ -264,7 +421,7 @@ export function registerSettingsIpc(): void {
       // Only agentDrafter needs propagation here — it's the worker's default model for
       // auto-draft tasks that don't pass a per-task override. The agentChat model is
       // resolved fresh per-invocation in agent.ipc.ts via getModelIdForFeature("agentChat").
-      if ("modelConfig" in config) {
+      if ("modelConfig" in config || "openaiCompatible" in config || "llmBackend" in config) {
         agentCoordinator.updateConfig({
           model: getModelIdForFeature("agentDrafter"),
         });
@@ -272,7 +429,12 @@ export function registerSettingsIpc(): void {
 
       // Reset cached analyzer/service instances when model config or API key changes,
       // since they hold Anthropic client instances that capture the key at construction.
-      if ("modelConfig" in config || "anthropicApiKey" in config) {
+      if (
+        "modelConfig" in config ||
+        "anthropicApiKey" in config ||
+        "llmBackend" in config ||
+        "openaiCompatible" in config
+      ) {
         resetClient();
         resetAnalyzer();
         resetArchiveReadyAnalyzer();

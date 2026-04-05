@@ -1,5 +1,5 @@
 import { type z } from "zod";
-import type { McpServerConfig, CliToolConfig } from "../../shared/types";
+import type { LlmBackend, McpServerConfig, CliToolConfig } from "../../shared/types";
 
 // Re-export renderer-safe types from the shared module to maintain a single
 // source of truth across the IPC boundary.
@@ -155,7 +155,12 @@ export type NetFetchProxyFn = (
 
 export interface AgentFrameworkConfig {
   model: string;
+  llmBackend?: LlmBackend;
   anthropicApiKey?: string;
+  openaiCompatible?: {
+    baseUrl: string;
+    apiKey?: string;
+  };
   providers?: Record<string, ProviderSettings>;
   browserConfig?: {
     enabled: boolean;

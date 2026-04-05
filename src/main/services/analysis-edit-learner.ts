@@ -16,7 +16,7 @@
  * Analysis memories are injected into the analysis prompt (not the draft prompt).
  */
 import { randomUUID } from "crypto";
-import { createMessage } from "./anthropic-service";
+import { createMessage, getLlmRuntimeConfig } from "./anthropic-service";
 import {
   getDraftMemories,
   saveDraftMemory,
@@ -38,6 +38,14 @@ const PROMOTION_THRESHOLD = 2;
 
 /** Maximum number of analysis draft memories per account */
 const MAX_DRAFT_MEMORIES = 500;
+
+function learnerModel(anthropicModel: string): string {
+  const runtime = getLlmRuntimeConfig();
+  if (runtime.llmBackend === "openai_compatible") {
+    return runtime.openaiCompatible?.modelConfig?.analysis || "gpt-4o-mini";
+  }
+  return anthropicModel;
+}
 
 interface AnalysisOverride {
   emailId: string;
@@ -294,7 +302,7 @@ async function analyzeOverride(override: AnalysisOverride): Promise<AnalysisObse
 
   const response = await createMessage(
     {
-      model: "claude-sonnet-4-20250514",
+      model: learnerModel("claude-sonnet-4-20250514"),
       max_tokens: 2048,
       messages: [
         {
@@ -390,7 +398,7 @@ async function matchAnalysisDraftMemories(
 
   const response = await createMessage(
     {
-      model: "claude-sonnet-4-5-20250929",
+      model: learnerModel("claude-sonnet-4-5-20250929"),
       max_tokens: 1024,
       messages: [
         {
@@ -446,7 +454,7 @@ async function classifyScope(
 
   const response = await createMessage(
     {
-      model: "claude-haiku-4-5-20251001",
+      model: learnerModel("claude-haiku-4-5-20251001"),
       max_tokens: 256,
       messages: [
         {

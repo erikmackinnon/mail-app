@@ -15,6 +15,7 @@ import type {
 } from "@anthropic-ai/sdk/resources/messages";
 import { createLogger } from "./logger";
 import { randomUUID } from "crypto";
+import type { LlmBackend, OpenAICompatibleConfig } from "../../shared/types";
 
 const log = createLogger("anthropic");
 
@@ -86,9 +87,36 @@ interface CreateOptions {
   timeoutMs?: number;
 }
 
+type LlmRuntimeConfig = {
+  llmBackend: LlmBackend;
+  openaiCompatible?: OpenAICompatibleConfig;
+};
+
+let _llmRuntimeConfig: LlmRuntimeConfig = { llmBackend: "anthropic" };
+
+export function setLlmRuntimeConfig(config: Partial<LlmRuntimeConfig>): void {
+  _llmRuntimeConfig = { ..._llmRuntimeConfig, ...config };
+}
+
+export function getLlmRuntimeConfig(): LlmRuntimeConfig {
+  return _llmRuntimeConfig;
+}
+
 // Anthropic client — singleton for production, replaceable for testing
 let _anthropicClient: Anthropic | null = null;
 let _defaultClient: Anthropic | null = null;
+let _openaiCompatibleClient: Anthropic | null = null;
+let _openaiFetch: typeof fetch = fetch;
+
+class OpenAICompatibleError extends Error {
+  readonly status?: number;
+
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = "OpenAICompatibleError";
+    this.status = status;
+  }
+}
 
 /**
  * Replace the Anthropic client for testing. Pass null to reset.
@@ -98,18 +126,178 @@ export function _setClientForTesting(client: unknown): void {
   _anthropicClient = client as Anthropic;
 }
 
+export function _setOpenAIFetchForTesting(fetchImpl: typeof fetch): void {
+  _openaiFetch = fetchImpl;
+}
+
 /**
  * Reset the cached default client, forcing a fresh Anthropic() on next call.
  * Call this when the API key changes (e.g. via Settings).
  */
 export function resetClient(): void {
   _defaultClient = null;
+  _openaiCompatibleClient = null;
 }
 
 export function getClient(): Anthropic {
   if (_anthropicClient) return _anthropicClient;
+  if (shouldUseOpenAICompatibleBackend()) {
+    if (!_openaiCompatibleClient) {
+      _openaiCompatibleClient = {
+        messages: {
+          create: async (params: MessageCreateParamsNonStreaming) =>
+            createMessageViaOpenAICompatible(params, { caller: "openai-compatible-direct" }),
+          stream: (params: MessageCreateParamsNonStreaming) => ({
+            finalMessage: async () =>
+              createMessageViaOpenAICompatible(params, { caller: "openai-compatible-stream" }),
+          }),
+        },
+      } as unknown as Anthropic;
+    }
+    return _openaiCompatibleClient;
+  }
   if (!_defaultClient) _defaultClient = new Anthropic();
   return _defaultClient;
+}
+
+function shouldUseOpenAICompatibleBackend(): boolean {
+  return _llmRuntimeConfig.llmBackend === "openai_compatible";
+}
+
+function getOpenAICompatibleEndpoint():
+  | { baseUrl: string; apiKey?: string }
+  | null {
+  const cfg = _llmRuntimeConfig.openaiCompatible;
+  if (!cfg?.baseUrl) return null;
+  return {
+    baseUrl: cfg.baseUrl.replace(/\/+$/, ""),
+    apiKey: cfg.apiKey?.trim() || undefined,
+  };
+}
+
+function contentToText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const block of content) {
+    if (block && typeof block === "object" && "type" in block && "text" in block) {
+      const typed = block as { type?: unknown; text?: unknown };
+      if (typed.type === "text" && typeof typed.text === "string") {
+        parts.push(typed.text);
+      }
+    }
+  }
+  return parts.join("\n");
+}
+
+function systemToText(system: MessageCreateParamsNonStreaming["system"]): string {
+  if (!system) return "";
+  if (typeof system === "string") return system;
+  if (!Array.isArray(system)) return "";
+  return system
+    .map((block) => (block?.type === "text" ? block.text : ""))
+    .filter((v) => typeof v === "string" && v.length > 0)
+    .join("\n\n");
+}
+
+function buildOpenAICompatibleMessages(
+  params: MessageCreateParamsNonStreaming,
+): Array<Record<string, unknown>> {
+  const messages: Array<Record<string, unknown>> = [];
+  const systemText = systemToText(params.system);
+  if (systemText) {
+    messages.push({ role: "system", content: systemText });
+  }
+  for (const msg of params.messages) {
+    if (msg.role === "user" || msg.role === "assistant") {
+      messages.push({ role: msg.role, content: contentToText(msg.content) });
+    }
+  }
+  return messages;
+}
+
+async function createMessageViaOpenAICompatible(
+  params: MessageCreateParamsNonStreaming,
+  options: CreateOptions,
+  attemptSignal?: AbortSignal,
+): Promise<Message> {
+  const endpoint = getOpenAICompatibleEndpoint();
+  if (!endpoint) {
+    throw new OpenAICompatibleError(
+      "OpenAI-compatible backend selected but base URL is not configured.",
+    );
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (endpoint.apiKey) {
+    headers.Authorization = `Bearer ${endpoint.apiKey}`;
+  }
+
+  const signals: AbortSignal[] = [];
+  if (attemptSignal) signals.push(attemptSignal);
+  if (options.timeoutMs) signals.push(AbortSignal.timeout(options.timeoutMs));
+  const signal = signals.length === 0 ? undefined : AbortSignal.any(signals);
+
+  const body = {
+    model: params.model,
+    max_tokens: params.max_tokens,
+    temperature: params.temperature,
+    messages: buildOpenAICompatibleMessages(params),
+  };
+
+  const response = await _openaiFetch(`${endpoint.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers,
+    signal,
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    let message = `OpenAI-compatible request failed (${response.status})`;
+    try {
+      const payload = (await response.json()) as {
+        error?: { message?: string } | string;
+        message?: string;
+      };
+      const detailed =
+        typeof payload.error === "string"
+          ? payload.error
+          : payload.error?.message || payload.message || "";
+      if (detailed) message = detailed;
+    } catch {
+      const text = await response.text().catch(() => "");
+      if (text) message = text.slice(0, 400);
+    }
+    throw new OpenAICompatibleError(message, response.status);
+  }
+
+  const payload = (await response.json()) as {
+    id?: string;
+    model?: string;
+    choices?: Array<{ message?: { content?: unknown } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+  };
+
+  const text = contentToText(payload.choices?.[0]?.message?.content);
+  const usage = payload.usage ?? {};
+
+  return {
+    id: payload.id ?? randomUUID(),
+    type: "message",
+    role: "assistant",
+    content: [{ type: "text", text }],
+    model: payload.model ?? params.model,
+    stop_reason: "end_turn",
+    stop_sequence: null,
+    usage: {
+      input_tokens: usage.prompt_tokens ?? 0,
+      output_tokens: usage.completion_tokens ?? 0,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+    },
+  } as Message;
 }
 
 // Database handle — set via setDatabase() during app init
@@ -268,6 +456,15 @@ function getRetryCategory(error: unknown): string | null {
   if (error instanceof Anthropic.APIError && (error as { status?: number }).status === 529) {
     return "server_error";
   }
+  if (error instanceof OpenAICompatibleError) {
+    if (error.status === 429) return "rate_limit";
+    if (typeof error.status === "number" && error.status >= 500) return "server_error";
+    return null;
+  }
+  if (error instanceof TypeError) {
+    // fetch() network errors are often surfaced as TypeError
+    return "connection";
+  }
   return null;
 }
 
@@ -281,8 +478,6 @@ export async function createMessage(
   const { caller, emailId, accountId, timeoutMs } = options;
   const model = params.model;
   const startTime = Date.now();
-
-  const client = getClient();
   let lastError: unknown = null;
   let totalAttempts = 0;
 
@@ -301,9 +496,14 @@ export async function createMessage(
     }
 
     try {
-      const response = await client.messages.create(params, {
-        signal: abortController?.signal,
-      });
+      const response = shouldUseOpenAICompatibleBackend()
+        ? await createMessageViaOpenAICompatible(params, {
+            ...options,
+            timeoutMs,
+          }, abortController?.signal)
+        : await getClient().messages.create(params, {
+            signal: abortController?.signal,
+          });
 
       // Success — record and return
       const usage = response.usage as unknown as Record<string, number>;

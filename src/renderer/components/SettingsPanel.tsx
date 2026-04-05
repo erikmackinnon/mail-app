@@ -8,6 +8,7 @@ import {
   DEFAULT_STYLE_PROMPT,
   DEFAULT_AGENT_DRAFTER_PROMPT,
   DEFAULT_MODEL_CONFIG,
+  DEFAULT_OPENAI_COMPATIBLE_MODEL_CONFIG,
   MODEL_TIERS,
   MODEL_TIER_LABELS,
   type EAConfig,
@@ -15,8 +16,10 @@ import {
   type InboxDensity,
   type Signature,
   type McpServerConfig,
+  type LlmBackend,
   type ModelConfig,
   type ModelTier,
+  type OpenAICompatibleModelConfig,
   type CliToolConfig,
 } from "../../shared/types";
 import { useAppStore, type Account, type SettingsTab } from "../store";
@@ -80,7 +83,15 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
 
   // General settings state
   const [enableSenderLookup, setEnableSenderLookup] = useState(true);
+  const [llmBackend, setLlmBackend] = useState<LlmBackend>("anthropic");
   const [modelConfig, setModelConfig] = useState<ModelConfig>(DEFAULT_MODEL_CONFIG);
+  const [openaiBaseUrl, setOpenaiBaseUrl] = useState("");
+  const [openaiApiKey, setOpenaiApiKey] = useState("");
+  const [openaiModelConfig, setOpenaiModelConfig] = useState<OpenAICompatibleModelConfig>(
+    DEFAULT_OPENAI_COMPATIBLE_MODEL_CONFIG,
+  );
+  const [isValidatingOpenAI, setIsValidatingOpenAI] = useState(false);
+  const [openaiValidationResult, setOpenaiValidationResult] = useState<string | null>(null);
   const [isSavingGeneral, setIsSavingGeneral] = useState(false);
   const [isExportingLogs, setIsExportingLogs] = useState(false);
   const [exportLogsError, setExportLogsError] = useState<string | null>(null);
@@ -220,7 +231,14 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
   useEffect(() => {
     if (generalConfig) {
       setEnableSenderLookup(generalConfig.enableSenderLookup ?? true);
+      setLlmBackend(generalConfig.llmBackend ?? "anthropic");
       setModelConfig({ ...DEFAULT_MODEL_CONFIG, ...generalConfig.modelConfig });
+      setOpenaiBaseUrl(generalConfig.openaiCompatible?.baseUrl ?? "");
+      setOpenaiApiKey(generalConfig.openaiCompatible?.apiKey ?? "");
+      setOpenaiModelConfig({
+        ...DEFAULT_OPENAI_COMPATIBLE_MODEL_CONFIG,
+        ...generalConfig.openaiCompatible?.modelConfig,
+      });
       setGithubToken(generalConfig.githubToken ?? "");
       setAllowPrereleaseUpdates(generalConfig.allowPrereleaseUpdates ?? false);
       setAnthropicApiKey(generalConfig.anthropicApiKey ?? "");
@@ -372,14 +390,52 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
     setIsSavingGeneral(true);
     try {
       await window.api.settings.set({
+        llmBackend,
         enableSenderLookup,
         modelConfig,
+        openaiCompatible:
+          openaiBaseUrl.trim().length > 0
+            ? {
+                baseUrl: openaiBaseUrl.trim(),
+                apiKey: openaiApiKey.trim() || undefined,
+                modelConfig: openaiModelConfig,
+              }
+            : undefined,
         githubToken: githubToken || undefined,
         allowPrereleaseUpdates,
       });
       queryClient.invalidateQueries({ queryKey: ["general-config"] });
     } finally {
       setIsSavingGeneral(false);
+    }
+  };
+
+  const handleValidateOpenAI = async () => {
+    setIsValidatingOpenAI(true);
+    setOpenaiValidationResult(null);
+    try {
+      const validation = (await window.api.settings.validateOpenAICompatible(
+        openaiBaseUrl.trim(),
+        openaiApiKey.trim() || undefined,
+        openaiModelConfig.senderLookup,
+      )) as {
+        success: boolean;
+        error?: string;
+        data?: { agentSupported: boolean; agentMessage?: string };
+      };
+      if (!validation.success) {
+        setOpenaiValidationResult(validation.error || "Validation failed.");
+      } else if (validation.data?.agentSupported === false) {
+        setOpenaiValidationResult(
+          `Endpoint OK for non-agent flows. Agent unavailable: ${validation.data.agentMessage || "missing streaming/tool support"}`,
+        );
+      } else {
+        setOpenaiValidationResult("Connection successful.");
+      }
+    } catch (error) {
+      setOpenaiValidationResult(error instanceof Error ? error.message : "Validation failed.");
+    } finally {
+      setIsValidatingOpenAI(false);
     }
   };
 
@@ -1063,10 +1119,82 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 <div className="mb-3">
                   <h3 className="font-semibold text-gray-900 dark:text-gray-100">AI Models</h3>
                   <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                    Choose which Claude model to use for each feature. Haiku is fastest and
-                    cheapest, Opus is most capable.
+                    Choose your LLM backend and assign models per feature.
                   </p>
                 </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
+                  <button
+                    onClick={() => setLlmBackend("anthropic")}
+                    className={`px-3 py-2 rounded-lg border text-sm ${
+                      llmBackend === "anthropic"
+                        ? "border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                        : "border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300"
+                    }`}
+                  >
+                    Anthropic Claude
+                  </button>
+                  <button
+                    onClick={() => setLlmBackend("openai_compatible")}
+                    className={`px-3 py-2 rounded-lg border text-sm ${
+                      llmBackend === "openai_compatible"
+                        ? "border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                        : "border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300"
+                    }`}
+                  >
+                    OpenAI-Compatible
+                  </button>
+                </div>
+
+                {llmBackend === "openai_compatible" && (
+                  <div className="space-y-3 mb-4 p-3 bg-gray-50 dark:bg-gray-700/40 rounded-lg border border-gray-200 dark:border-gray-600">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Base URL
+                      </label>
+                      <input
+                        type="text"
+                        value={openaiBaseUrl}
+                        onChange={(e) => setOpenaiBaseUrl(e.target.value)}
+                        placeholder="http://localhost:11434/v1"
+                        className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-500 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        API Key (optional)
+                      </label>
+                      <input
+                        type="password"
+                        value={openaiApiKey}
+                        onChange={(e) => setOpenaiApiKey(e.target.value)}
+                        placeholder="sk-..."
+                        className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-500 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleValidateOpenAI}
+                        disabled={isValidatingOpenAI || !openaiBaseUrl.trim()}
+                        className="px-3 py-1.5 text-xs rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
+                      >
+                        {isValidatingOpenAI ? "Validating..." : "Test Endpoint"}
+                      </button>
+                      {openaiValidationResult && (
+                        <span
+                          className={`text-xs ${
+                            openaiValidationResult === "Connection successful."
+                              ? "text-green-600 dark:text-green-400"
+                              : "text-red-600 dark:text-red-400"
+                          }`}
+                        >
+                          {openaiValidationResult}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-3">
                   {[
                     {
@@ -1120,22 +1248,37 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                         </p>
                         <p className="text-xs text-gray-500 dark:text-gray-400">{description}</p>
                       </div>
-                      <select
-                        value={modelConfig[key]}
-                        onChange={(e) => {
-                          const tier = e.target.value;
-                          if ((MODEL_TIERS as readonly string[]).includes(tier)) {
-                            setModelConfig((prev) => ({ ...prev, [key]: tier as ModelTier }));
+                      {llmBackend === "anthropic" ? (
+                        <select
+                          value={modelConfig[key]}
+                          onChange={(e) => {
+                            const tier = e.target.value;
+                            if ((MODEL_TIERS as readonly string[]).includes(tier)) {
+                              setModelConfig((prev) => ({ ...prev, [key]: tier as ModelTier }));
+                            }
+                          }}
+                          className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-500 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        >
+                          {MODEL_TIERS.map((tier) => (
+                            <option key={tier} value={tier}>
+                              {MODEL_TIER_LABELS[tier]}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={openaiModelConfig[key]}
+                          onChange={(e) =>
+                            setOpenaiModelConfig((prev) => ({
+                              ...prev,
+                              [key]: e.target.value,
+                            }))
                           }
-                        }}
-                        className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-500 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      >
-                        {MODEL_TIERS.map((tier) => (
-                          <option key={tier} value={tier}>
-                            {MODEL_TIER_LABELS[tier]}
-                          </option>
-                        ))}
-                      </select>
+                          placeholder="model-name"
+                          className="w-52 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-500 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                        />
+                      )}
                     </div>
                   ))}
                 </div>
@@ -2400,35 +2543,40 @@ export function SettingsPanel({ onClose, initialTab }: SettingsPanelProps) {
                 Authentication
               </h4>
 
-              {/* Anthropic API Key */}
-              <div className="mb-6">
-                <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Anthropic API Key
-                </h5>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                  Required for email analysis, draft generation, and sender lookup.
-                </p>
-                <div className="flex gap-2">
-                  <input
-                    type="password"
-                    value={anthropicApiKey}
-                    onChange={(e) => setAnthropicApiKey(e.target.value)}
-                    placeholder="sk-ant-..."
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-400"
-                  />
-                  <button
-                    onClick={handleSaveApiKey}
-                    disabled={isSavingApiKey}
-                    className={`px-4 py-2 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors ${
-                      apiKeySaved
-                        ? "bg-green-600 dark:bg-green-500"
-                        : "bg-blue-600 dark:bg-blue-500 hover:bg-blue-700 dark:hover:bg-blue-600"
-                    }`}
-                  >
-                    {isSavingApiKey ? "Saving..." : apiKeySaved ? "Saved" : "Save"}
-                  </button>
+              {llmBackend === "anthropic" ? (
+                <div className="mb-6">
+                  <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Anthropic API Key
+                  </h5>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                    Required when using the Anthropic backend.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={anthropicApiKey}
+                      onChange={(e) => setAnthropicApiKey(e.target.value)}
+                      placeholder="sk-ant-..."
+                      className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-400"
+                    />
+                    <button
+                      onClick={handleSaveApiKey}
+                      disabled={isSavingApiKey}
+                      className={`px-4 py-2 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors ${
+                        apiKeySaved
+                          ? "bg-green-600 dark:bg-green-500"
+                          : "bg-blue-600 dark:bg-blue-500 hover:bg-blue-700 dark:hover:bg-blue-600"
+                      }`}
+                    >
+                      {isSavingApiKey ? "Saving..." : apiKeySaved ? "Saved" : "Save"}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="mb-6 text-xs text-gray-500 dark:text-gray-400">
+                  Agent requests use the OpenAI-compatible endpoint configured in General settings.
+                </div>
+              )}
 
               {/* Claude Account (OAuth) — only shown when claude CLI is available */}
               {claudeCliAvailable && (

@@ -1,5 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import type { IpcResponse } from "../../shared/types";
+import {
+  DEFAULT_OPENAI_COMPATIBLE_MODEL_CONFIG,
+  type IpcResponse,
+  type LlmBackend,
+} from "../../shared/types";
 import { reconfigurePostHog } from "../services/posthog";
 
 interface SetupWizardProps {
@@ -29,6 +33,12 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
   // API key input
   const [apiKey, setApiKey] = useState("");
+  const [llmBackend, setLlmBackend] = useState<LlmBackend>("anthropic");
+  const [openaiBaseUrl, setOpenaiBaseUrl] = useState("http://localhost:11434/v1");
+  const [openaiApiKey, setOpenaiApiKey] = useState("");
+  const [openaiModel, setOpenaiModel] = useState(
+    DEFAULT_OPENAI_COMPATIBLE_MODEL_CONFIG.analysis,
+  );
 
   // Extension auth state
   const [extensionAuths, setExtensionAuths] = useState<ExtensionAuthInfo[]>([]);
@@ -41,16 +51,16 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   useEffect(() => {
     (
       window.api.gmail.checkAuth() as Promise<
-        IpcResponse<{ hasCredentials: boolean; hasTokens: boolean; hasAnthropicKey: boolean }>
+        IpcResponse<{ hasCredentials: boolean; hasTokens: boolean; hasLlmConfig: boolean }>
       >
     )
       .then((authResult) => {
         if (authResult.success) {
-          const { hasCredentials, hasAnthropicKey, hasTokens } = authResult.data;
+          const { hasCredentials, hasLlmConfig, hasTokens } = authResult.data;
 
           const flow: Step[] = [];
           if (!hasCredentials) flow.push("credentials");
-          if (!hasAnthropicKey) flow.push("apikey");
+          if (!hasLlmConfig) flow.push("apikey");
           if (!hasTokens) flow.push("oauth");
           flow.push("extensions");
           flow.push("analytics");
@@ -58,7 +68,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
           if (!hasCredentials) {
             setStep("credentials");
-          } else if (!hasAnthropicKey) {
+          } else if (!hasLlmConfig) {
             setStep("apikey");
           } else if (!hasTokens) {
             setStep("oauth");
@@ -107,32 +117,75 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   };
 
   const handleSaveApiKey = async () => {
-    if (!apiKey.trim()) {
-      setError("Please enter your Anthropic API key");
-      return;
-    }
-
     setIsLoading(true);
     setError(null);
 
     try {
-      // Validate the key with a real API call before saving
-      const validation = (await window.api.settings.validateApiKey(
-        apiKey.trim(),
-      )) as IpcResponse<void>;
-      if (!validation.success) {
-        setError(validation.error ?? "Invalid API key");
-        return;
+      if (llmBackend === "anthropic") {
+        if (!apiKey.trim()) {
+          setError("Please enter your Anthropic API key");
+          return;
+        }
+
+        // Validate the key with a real API call before saving
+        const validation = (await window.api.settings.validateApiKey(
+          apiKey.trim(),
+        )) as IpcResponse<void>;
+        if (!validation.success) {
+          setError(validation.error ?? "Invalid API key");
+          return;
+        }
+      } else {
+        if (!openaiBaseUrl.trim()) {
+          setError("Please enter an OpenAI-compatible base URL");
+          return;
+        }
+        if (!openaiModel.trim()) {
+          setError("Please enter a model name");
+          return;
+        }
+        const validation = (await window.api.settings.validateOpenAICompatible(
+          openaiBaseUrl.trim(),
+          openaiApiKey.trim() || undefined,
+          openaiModel.trim(),
+        )) as IpcResponse<void>;
+        if (!validation.success) {
+          setError(validation.error ?? "Endpoint validation failed");
+          return;
+        }
       }
 
-      const result = (await window.api.settings.set({
-        anthropicApiKey: apiKey.trim(),
-      })) as IpcResponse<void>;
+      const openaiModelConfig = {
+        analysis: openaiModel.trim(),
+        drafts: openaiModel.trim(),
+        refinement: openaiModel.trim(),
+        calendaring: openaiModel.trim(),
+        archiveReady: openaiModel.trim(),
+        senderLookup: openaiModel.trim(),
+        agentDrafter: openaiModel.trim(),
+        agentChat: openaiModel.trim(),
+      };
+
+      const result = (await window.api.settings.set(
+        llmBackend === "anthropic"
+          ? {
+              llmBackend: "anthropic",
+              anthropicApiKey: apiKey.trim(),
+            }
+          : {
+              llmBackend: "openai_compatible",
+              openaiCompatible: {
+                baseUrl: openaiBaseUrl.trim(),
+                apiKey: openaiApiKey.trim() || undefined,
+                modelConfig: openaiModelConfig,
+              },
+            },
+      )) as IpcResponse<void>;
       if (result.success) {
         const authResult = (await window.api.gmail.checkAuth()) as IpcResponse<{
           hasCredentials: boolean;
           hasTokens: boolean;
-          hasAnthropicKey: boolean;
+          hasLlmConfig: boolean;
         }>;
         if (authResult.success && authResult.data.hasTokens) {
           await enterExtensionsStep();
@@ -337,49 +390,118 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
           {step === "apikey" && (
             <>
               <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
-                Anthropic API Key
+                AI Backend
               </h2>
               <p className="text-gray-600 dark:text-gray-400 mb-6">
-                Exo uses Claude to analyze your emails, generate drafts, and look up sender
-                information. You'll need an Anthropic API key to enable these features.
+                Choose which backend Exo should use for analysis, drafting, and agent features.
               </p>
 
-              <div className="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg mb-6">
-                <h3 className="font-semibold text-blue-900 dark:text-blue-200 mb-2">
-                  Get your API key:
-                </h3>
-                <ol className="text-sm text-blue-800 dark:text-blue-300 space-y-2 list-decimal list-inside">
-                  <li>
-                    Go to{" "}
-                    <a
-                      href="https://console.anthropic.com/settings/keys"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline hover:no-underline"
-                    >
-                      console.anthropic.com
-                    </a>
-                  </li>
-                  <li>Create a new API key (or use an existing one)</li>
-                  <li>Paste it below</li>
-                </ol>
+              <div className="grid grid-cols-2 gap-2 mb-6">
+                <button
+                  onClick={() => setLlmBackend("anthropic")}
+                  className={`px-3 py-2 rounded-lg border text-sm ${
+                    llmBackend === "anthropic"
+                      ? "border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                      : "border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300"
+                  }`}
+                >
+                  Anthropic Claude
+                </button>
+                <button
+                  onClick={() => setLlmBackend("openai_compatible")}
+                  className={`px-3 py-2 rounded-lg border text-sm ${
+                    llmBackend === "openai_compatible"
+                      ? "border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                      : "border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300"
+                  }`}
+                >
+                  OpenAI-Compatible
+                </button>
               </div>
 
-              <div className="space-y-4 mb-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    API Key
-                  </label>
-                  <input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && !isLoading && handleSaveApiKey()}
-                    placeholder="sk-ant-api03-..."
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
+              {llmBackend === "anthropic" ? (
+                <>
+                  <div className="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg mb-6">
+                    <h3 className="font-semibold text-blue-900 dark:text-blue-200 mb-2">
+                      Get your API key:
+                    </h3>
+                    <ol className="text-sm text-blue-800 dark:text-blue-300 space-y-2 list-decimal list-inside">
+                      <li>
+                        Go to{" "}
+                        <a
+                          href="https://console.anthropic.com/settings/keys"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline hover:no-underline"
+                        >
+                          console.anthropic.com
+                        </a>
+                      </li>
+                      <li>Create a new API key (or use an existing one)</li>
+                      <li>Paste it below</li>
+                    </ol>
+                  </div>
+
+                  <div className="space-y-4 mb-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        API Key
+                      </label>
+                      <input
+                        type="password"
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && !isLoading && handleSaveApiKey()}
+                        placeholder="sk-ant-api03-..."
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-4 mb-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Base URL
+                    </label>
+                    <input
+                      type="text"
+                      value={openaiBaseUrl}
+                      onChange={(e) => setOpenaiBaseUrl(e.target.value)}
+                      placeholder="http://localhost:11434/v1"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      API Key (optional)
+                    </label>
+                    <input
+                      type="password"
+                      value={openaiApiKey}
+                      onChange={(e) => setOpenaiApiKey(e.target.value)}
+                      placeholder="sk-..."
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Default Model
+                    </label>
+                    <input
+                      type="text"
+                      value={openaiModel}
+                      onChange={(e) => setOpenaiModel(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && !isLoading && handleSaveApiKey()}
+                      placeholder="gpt-4o-mini"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      You can customize per-feature models later in Settings.
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {error && (
                 <div className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg mb-4">

@@ -14,13 +14,16 @@ import Anthropic from "@anthropic-ai/sdk";
 import {
   createMessage,
   _setClientForTesting,
+  _setOpenAIFetchForTesting,
   setAnthropicServiceDb,
   getUsageStats,
   getCallHistory,
+  setLlmRuntimeConfig,
   type LlmCallRecord,
 } from "../../src/main/services/anthropic-service";
 
 const require = createRequire(import.meta.url);
+const realFetch = globalThis.fetch;
 
 // --- Database setup ---
 
@@ -151,6 +154,8 @@ test.describe("AnthropicService", () => {
 
   test.afterEach(() => {
     _setClientForTesting(null);
+    _setOpenAIFetchForTesting(realFetch);
+    setLlmRuntimeConfig({ llmBackend: "anthropic", openaiCompatible: undefined });
     testDb?.close();
   });
 
@@ -163,6 +168,37 @@ test.describe("AnthropicService", () => {
     expect(result.id).toBe("msg_test_123");
     expect(result.content[0]).toEqual({ type: "text", text: "Hello, world!" });
     expect(result.usage.input_tokens).toBe(100);
+  });
+
+  test("routes to openai-compatible backend when configured", async () => {
+    setLlmRuntimeConfig({
+      llmBackend: "openai_compatible",
+      openaiCompatible: { baseUrl: "http://localhost:11434/v1" },
+    });
+    _setOpenAIFetchForTesting(async () => {
+      return new Response(
+        JSON.stringify({
+          id: "chatcmpl_123",
+          model: "gpt-4o-mini",
+          choices: [{ message: { content: "Hello from local endpoint" } }],
+          usage: { prompt_tokens: 42, completion_tokens: 9 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+
+    const result = await createMessage(
+      {
+        model: "gpt-4o-mini",
+        max_tokens: 128,
+        messages: [{ role: "user", content: "hi" }],
+      },
+      { caller: "openai-compatible-test" },
+    );
+
+    expect(result.content[0]).toEqual({ type: "text", text: "Hello from local endpoint" });
+    expect(result.usage.input_tokens).toBe(42);
+    expect(result.usage.output_tokens).toBe(9);
   });
 
   test("retries on rate limit error and eventually succeeds", async () => {

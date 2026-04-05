@@ -10,7 +10,12 @@
  * Key invariant: draft memories never enter the prompt. Only promoted memories do.
  */
 import { randomUUID } from "crypto";
-import { createMessage, getClient, recordStreamingCall } from "./anthropic-service";
+import {
+  createMessage,
+  getClient,
+  getLlmRuntimeConfig,
+  recordStreamingCall,
+} from "./anthropic-service";
 import {
   getThreadDraftBody,
   getDraftMemories,
@@ -55,6 +60,14 @@ const PROMOTION_THRESHOLD = 3;
 
 /** Maximum number of draft memories per account */
 const MAX_DRAFT_MEMORIES = 1000;
+
+function learnerModel(anthropicModel: string): string {
+  const runtime = getLlmRuntimeConfig();
+  if (runtime.llmBackend === "openai_compatible") {
+    return runtime.openaiCompatible?.modelConfig?.drafts || "gpt-4o-mini";
+  }
+  return anthropicModel;
+}
 
 /** Strip HTML tags and decode entities to get plain text for comparison */
 function htmlToPlainText(html: string): string {
@@ -165,7 +178,7 @@ async function analyzeDraftEdit(params: {
   const client = getClient();
   const streamStartTime = Date.now();
   const stream = client.messages.stream({
-    model: "claude-opus-4-20250514",
+    model: learnerModel("claude-opus-4-20250514"),
     max_tokens: 16000,
     thinking: {
       type: "enabled",
@@ -269,7 +282,7 @@ Respond with ONLY the JSON array, no other text.`,
   // Record streaming call cost
   const streamUsage = response.usage as unknown as Record<string, number>;
   recordStreamingCall(
-    "claude-opus-4-20250514",
+    response.model ?? "unknown-model",
     "draft-edit-learner-analyze",
     streamUsage,
     Date.now() - streamStartTime,
@@ -333,7 +346,7 @@ async function matchDraftMemories(
 ): Promise<Array<{ observationIndex: number; matchedDraftMemoryId: string | null }>> {
   const response = await createMessage(
     {
-      model: "claude-sonnet-4-5-20250929",
+      model: learnerModel("claude-sonnet-4-5-20250929"),
       max_tokens: 1024,
       messages: [
         {
@@ -406,7 +419,7 @@ export async function filterAgainstPromotedMemories(
 
   const response = await createMessage(
     {
-      model: "claude-sonnet-4-5-20250929",
+      model: learnerModel("claude-sonnet-4-5-20250929"),
       max_tokens: 1024,
       messages: [
         {
@@ -504,7 +517,7 @@ export async function consolidateMemoryScopes(
 
   const response = await createMessage(
     {
-      model: "claude-sonnet-4-5-20250929",
+      model: learnerModel("claude-sonnet-4-5-20250929"),
       max_tokens: 1024,
       messages: [
         {

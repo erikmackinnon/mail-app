@@ -51,7 +51,7 @@ export function registerGmailIpc(): void {
   ipcMain.handle(
     "gmail:check-auth",
     async (): Promise<
-      IpcResponse<{ hasCredentials: boolean; hasTokens: boolean; hasAnthropicKey: boolean }>
+      IpcResponse<{ hasCredentials: boolean; hasTokens: boolean; hasLlmConfig: boolean }>
     > => {
       // In demo/test mode, always return authenticated
       if (useFakeData) {
@@ -60,20 +60,26 @@ export function registerGmailIpc(): void {
           data: {
             hasCredentials: true,
             hasTokens: true,
-            hasAnthropicKey: true,
+            hasLlmConfig: true,
           },
         };
       }
 
       try {
         const client = new GmailClient();
-        const hasAnthropicKey = !!(process.env.ANTHROPIC_API_KEY || getConfig().anthropicApiKey);
+        const cfg = getConfig();
+        const hasAnthropicKey = !!(process.env.ANTHROPIC_API_KEY || cfg.anthropicApiKey);
+        const hasOpenAICompatibleConfig = !!cfg.openaiCompatible?.baseUrl;
+        const hasLlmConfig =
+          (cfg.llmBackend ?? "anthropic") === "openai_compatible"
+            ? hasOpenAICompatibleConfig
+            : hasAnthropicKey;
         return {
           success: true,
           data: {
             hasCredentials: client.hasCredentials(),
             hasTokens: client.hasTokens(),
-            hasAnthropicKey,
+            hasLlmConfig,
           },
         };
       } catch (error) {

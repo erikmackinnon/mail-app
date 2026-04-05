@@ -22,6 +22,7 @@ import type {
 } from "../../shared/types";
 import { consolidateMemoryScopes } from "../services/draft-edit-learner";
 import { createLogger } from "../services/logger";
+import { getModelIdForFeature } from "./settings.ipc";
 
 const log = createLogger("memory-ipc");
 
@@ -188,7 +189,7 @@ export function registerMemoryIpc(): void {
       try {
         const response = await createMessage(
           {
-            model: "claude-haiku-4-5-20251001", // simple JSON classification — always haiku, independent of user model config
+            model: getModelIdForFeature("senderLookup"),
             max_tokens: 256,
             messages: [
               {

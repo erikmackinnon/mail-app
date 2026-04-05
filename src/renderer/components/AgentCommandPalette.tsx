@@ -222,12 +222,12 @@ export function AgentCommandPalette({ isOpen, onClose }: AgentCommandPaletteProp
   }, [query, suggestedActions, quickActions]);
 
   // When the palette opens, fetch real provider list from the backend if we don't have one yet.
-  // Also auto-select "claude" when nothing is selected.
+  // Auto-select the first available provider when nothing is selected.
   useEffect(() => {
     if (!isOpen) return;
 
-    if (selectedAgentIds.length === 0) {
-      setSelectedAgentIds(["claude"]);
+    if (selectedAgentIds.length === 0 && availableProviders.length > 0) {
+      setSelectedAgentIds([availableProviders[0].id]);
     }
 
     if (availableProviders.length === 0) {
@@ -239,6 +239,7 @@ export function AgentCommandPalette({ isOpen, onClose }: AgentCommandPaletteProp
     isOpen,
     selectedAgentIds.length,
     availableProviders.length,
+    availableProviders,
     setSelectedAgentIds,
     setAvailableProviders,
   ]);

@@ -13,6 +13,7 @@ import type {
 } from "./types";
 import { AgentProviderRegistry } from "./providers/registry";
 import { ClaudeAgentProvider } from "./providers/claude-agent-provider";
+import { OpenAICompatibleAgentProvider } from "./providers/openai-compatible-agent-provider";
 import { OpenClawAgentProvider } from "./providers/openclaw/openclaw-agent-provider";
 import { PermissionGate } from "./permission-gate";
 import type { ToolRegistry } from "./tools/registry";
@@ -54,8 +55,14 @@ export class AgentOrchestrator {
 
     this.providerRegistry = new AgentProviderRegistry();
 
-    // Register the Claude provider by default
-    this.providerRegistry.register(new ClaudeAgentProvider(deps.config));
+    const preferredProviderFirst = deps.config.llmBackend === "openai_compatible";
+    if (preferredProviderFirst) {
+      this.providerRegistry.register(new OpenAICompatibleAgentProvider(deps.config));
+      this.providerRegistry.register(new ClaudeAgentProvider(deps.config));
+    } else {
+      this.providerRegistry.register(new ClaudeAgentProvider(deps.config));
+      this.providerRegistry.register(new OpenAICompatibleAgentProvider(deps.config));
+    }
 
     // Register the OpenClaw provider
     const ocSettings = deps.config.providers?.["openclaw-agent"];

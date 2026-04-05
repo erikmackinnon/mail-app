@@ -311,6 +311,9 @@ export const MODEL_TIERS = ["haiku", "sonnet", "opus"] as const;
 export const ModelTierSchema = z.enum(["haiku", "sonnet", "opus"]);
 export type ModelTier = z.infer<typeof ModelTierSchema>;
 
+export const LlmBackendSchema = z.enum(["anthropic", "openai_compatible"]);
+export type LlmBackend = z.infer<typeof LlmBackendSchema>;
+
 // Centralized mapping from tier to model ID. Update these when new model versions ship.
 // Note: sonnet maps to 4.5 (not the legacy 4.0 default) — this is an intentional upgrade.
 // Opus uses the non-date-stamped alias because no pinned snapshot is available yet for 4.6.
@@ -353,6 +356,39 @@ export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   agentChat: "opus",
 };
 
+// Per-feature model configuration for OpenAI-compatible endpoints
+export const OpenAICompatibleModelConfigSchema = z.object({
+  analysis: z.string().default("gpt-4o-mini"),
+  drafts: z.string().default("gpt-4o-mini"),
+  refinement: z.string().default("gpt-4o-mini"),
+  calendaring: z.string().default("gpt-4o-mini"),
+  archiveReady: z.string().default("gpt-4o-mini"),
+  senderLookup: z.string().default("gpt-4o-mini"),
+  agentDrafter: z.string().default("gpt-4o-mini"),
+  agentChat: z.string().default("gpt-4o-mini"),
+});
+
+export type OpenAICompatibleModelConfig = z.infer<typeof OpenAICompatibleModelConfigSchema>;
+
+export const DEFAULT_OPENAI_COMPATIBLE_MODEL_CONFIG: OpenAICompatibleModelConfig = {
+  analysis: "gpt-4o-mini",
+  drafts: "gpt-4o-mini",
+  refinement: "gpt-4o-mini",
+  calendaring: "gpt-4o-mini",
+  archiveReady: "gpt-4o-mini",
+  senderLookup: "gpt-4o-mini",
+  agentDrafter: "gpt-4o-mini",
+  agentChat: "gpt-4o-mini",
+};
+
+export const OpenAICompatibleConfigSchema = z.object({
+  baseUrl: z.string().url(),
+  apiKey: z.string().optional(),
+  modelConfig: OpenAICompatibleModelConfigSchema.optional(),
+});
+
+export type OpenAICompatibleConfig = z.infer<typeof OpenAICompatibleConfigSchema>;
+
 /** Resolve a model tier to its concrete model ID string. */
 export function resolveModelId(tier: ModelTier): string {
   return MODEL_TIER_IDS[tier];
@@ -361,12 +397,14 @@ export function resolveModelId(tier: ModelTier): string {
 // Config schema
 export const ConfigSchema = z.object({
   maxEmails: z.number().default(50),
+  llmBackend: LlmBackendSchema.default("anthropic"),
   // Legacy field — no longer drives any AI calls. All features now use modelConfig
   // via getModelIdForFeature(). Kept in the schema so existing config files parse without error.
   model: z.string().default("claude-sonnet-4-20250514"),
   modelConfig: ModelConfigSchema.optional(),
   dryRun: z.boolean().default(false),
   anthropicApiKey: z.string().optional(),
+  openaiCompatible: OpenAICompatibleConfigSchema.optional(),
   analysisPrompt: z.string().default(DEFAULT_ANALYSIS_PROMPT),
   draftPrompt: z.string().default(DEFAULT_DRAFT_PROMPT),
   ea: EAConfigSchema.optional(),

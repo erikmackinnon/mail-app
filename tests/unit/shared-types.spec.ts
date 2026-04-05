@@ -14,6 +14,7 @@ import {
   resolveModelId,
   MODEL_TIER_IDS,
   DEFAULT_MODEL_CONFIG,
+  DEFAULT_OPENAI_COMPATIBLE_MODEL_CONFIG,
   DEFAULT_ANALYSIS_PROMPT,
   DEFAULT_DRAFT_PROMPT,
   type ModelTier,
@@ -266,6 +267,7 @@ test.describe("ConfigSchema", () => {
       undoSendDelay: 10,
       inboxDensity: "default",
       enableSenderLookup: false,
+      llmBackend: "anthropic",
       modelConfig: {
         analysis: "haiku",
         drafts: "opus",
@@ -279,6 +281,17 @@ test.describe("ConfigSchema", () => {
       theme: "midnight", // not a valid enum
     });
     expect(result.success).toBe(false);
+  });
+
+  test("validates openai-compatible backend config", () => {
+    const result = ConfigSchema.safeParse({
+      llmBackend: "openai_compatible",
+      openaiCompatible: {
+        baseUrl: "http://localhost:11434/v1",
+        modelConfig: DEFAULT_OPENAI_COMPATIBLE_MODEL_CONFIG,
+      },
+    });
+    expect(result.success).toBe(true);
   });
 
   test("rejects undoSendDelay out of range", () => {
