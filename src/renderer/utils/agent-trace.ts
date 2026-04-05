@@ -1,11 +1,7 @@
 import type { ScopedAgentEvent } from "../../shared/agent-types";
+import { normalizeTraceProviderId } from "../../shared/agent-provider-utils";
 
 const REPLAY_PROVIDER_FALLBACK_ORDER = ["claude", "openai-compatible"] as const;
-
-function normalizeProviderId(providerId: string | undefined): string | undefined {
-  const trimmed = providerId?.trim();
-  return trimmed ? trimmed : undefined;
-}
 
 export function selectReplayFallbackProviderId(params: {
   traceProviderId?: string;
@@ -13,14 +9,16 @@ export function selectReplayFallbackProviderId(params: {
   availableProviderIds?: string[];
   defaultProviderId?: string;
 }): string {
-  const traceProviderId = normalizeProviderId(params.traceProviderId);
+  const traceProviderId = normalizeTraceProviderId(params.traceProviderId);
   if (traceProviderId) return traceProviderId;
 
-  const preferredProviderId = normalizeProviderId(params.preferredProviderId);
+  const preferredProviderId = normalizeTraceProviderId(params.preferredProviderId);
   if (preferredProviderId) return preferredProviderId;
 
   const availableProviderIds = new Set(
-    (params.availableProviderIds ?? []).map((id) => normalizeProviderId(id)).filter(Boolean),
+    (params.availableProviderIds ?? [])
+      .map((id) => normalizeTraceProviderId(id))
+      .filter((id): id is string => Boolean(id)),
   );
 
   for (const providerId of REPLAY_PROVIDER_FALLBACK_ORDER) {
@@ -29,7 +27,7 @@ export function selectReplayFallbackProviderId(params: {
     }
   }
 
-  return normalizeProviderId(params.defaultProviderId) ?? "claude";
+  return normalizeTraceProviderId(params.defaultProviderId) ?? "claude";
 }
 
 export function deriveReplayProviderIds(
@@ -38,9 +36,8 @@ export function deriveReplayProviderIds(
 ): string[] {
   const providerIds = new Set<string>();
   for (const event of events) {
-    if (event.providerId && event.providerId.trim().length > 0) {
-      providerIds.add(event.providerId);
-    }
+    const providerId = normalizeTraceProviderId(event.providerId);
+    if (providerId) providerIds.add(providerId);
   }
   if (providerIds.size > 0) {
     return [...providerIds];

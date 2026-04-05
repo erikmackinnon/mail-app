@@ -33,6 +33,11 @@ test.describe("deriveReplayProviderIds", () => {
     const ids = deriveReplayProviderIds([stateEvent(), stateEvent()], "openai-compatible");
     expect(ids).toEqual(["openai-compatible"]);
   });
+
+  test("ignores invalid provider IDs from legacy traces", () => {
+    const ids = deriveReplayProviderIds([stateEvent("auto-draft"), stateEvent("")], "claude");
+    expect(ids).toEqual(["claude"]);
+  });
 });
 
 test.describe("selectReplayFallbackProviderId", () => {
@@ -54,5 +59,22 @@ test.describe("selectReplayFallbackProviderId", () => {
   test("falls back to default provider when no metadata or providers exist", () => {
     const providerId = selectReplayFallbackProviderId({});
     expect(providerId).toBe("claude");
+  });
+
+  test("ignores invalid persisted trace provider metadata", () => {
+    const providerId = selectReplayFallbackProviderId({
+      traceProviderId: "auto-draft",
+      availableProviderIds: ["openai-compatible", "claude"],
+    });
+    expect(providerId).toBe("claude");
+  });
+
+  test("replays missing-provider traces deterministically after restart", () => {
+    const fallbackProviderId = selectReplayFallbackProviderId({
+      traceProviderId: "openai-compatible",
+      availableProviderIds: ["claude", "openai-compatible"],
+    });
+    const replayProviderIds = deriveReplayProviderIds([stateEvent(), stateEvent()], fallbackProviderId);
+    expect(replayProviderIds).toEqual(["openai-compatible"]);
   });
 });

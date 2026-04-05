@@ -16,6 +16,7 @@ import { buildAgentMemoryContext } from "../services/memory-context";
 import { DraftGenerator } from "../services/draft-generator";
 import { generateDraftForEmail, generateForwardForEmail } from "../services/draft-pipeline";
 import { saveDraftAndSync } from "../services/gmail-draft-sync";
+import { resolvePersistedTraceProviderId } from "../../shared/agent-provider-utils";
 import { DEFAULT_STYLE_PROMPT } from "../../shared/types";
 import { populatePrivateProviderConfig } from "./private-providers-main";
 import { createLogger } from "../services/logger";
@@ -206,6 +207,7 @@ export class AgentCoordinator {
       this.activePorts.clear();
       // Clean up accumulated events
       this.taskEvents.clear();
+      this.taskProviderIds.clear();
       // Reject all pending completion promises
       for (const [taskId, resolver] of this.taskCompletionResolvers) {
         resolver.reject(new Error(`Worker exited with code ${code}`));
@@ -311,6 +313,7 @@ export class AgentCoordinator {
 
   // Accumulate events per task for persistence on completion
   private taskEvents = new Map<string, ScopedAgentEvent[]>();
+  private taskProviderIds = new Map<string, string[]>();
 
   // Track task completion so callers can await agent finishing (not just starting)
   private taskCompletionResolvers = new Map<
@@ -362,6 +365,7 @@ export class AgentCoordinator {
 
     // Initialize event accumulator for this task
     this.taskEvents.set(taskId, []);
+    this.taskProviderIds.set(taskId, providerIds);
 
     // Forward events from port1 to the renderer via IPC
     port1.on("message", (event) => {
@@ -428,11 +432,16 @@ export class AgentCoordinator {
     const events = this.taskEvents.get(taskId);
     if (!events || events.length === 0) {
       this.taskEvents.delete(taskId);
+      this.taskProviderIds.delete(taskId);
       return;
     }
 
     try {
-      db.upsertConversationMirror("auto-draft", taskId, {
+      const providerId = resolvePersistedTraceProviderId({
+        events,
+        requestedProviderIds: this.taskProviderIds.get(taskId),
+      });
+      db.upsertConversationMirror(providerId, taskId, {
         localTaskId: taskId,
         status: state,
         messagesJson: JSON.stringify(events),
@@ -443,6 +452,7 @@ export class AgentCoordinator {
     }
 
     this.taskEvents.delete(taskId);
+    this.taskProviderIds.delete(taskId);
   }
 
   cancel(taskId: string): void {
