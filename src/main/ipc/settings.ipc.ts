@@ -49,6 +49,7 @@ import { createLogger } from "../services/logger";
 
 const log = createLogger("settings-ipc");
 const AGENT_PROVIDER_CACHE_TTL_MS = 15_000;
+const AGENT_PROVIDER_HEALTHCHECK_TIMEOUT_MS = 1_000;
 let cachedAgentProviderSelection:
   | { at: number; backend: LlmBackend; providerId: BuiltInAgentProviderId }
   | null = null;
@@ -176,6 +177,7 @@ export async function getPreferredAgentProviderId(): Promise<string> {
 
   const resolution = await resolveAgentProviderWithFallback({
     llmBackend: backend,
+    availabilityTimeoutMs: AGENT_PROVIDER_HEALTHCHECK_TIMEOUT_MS,
     isProviderAvailable: async (providerId) => {
       try {
         const health = await agentCoordinator.checkProviderHealth(providerId);

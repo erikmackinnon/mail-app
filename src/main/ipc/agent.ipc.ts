@@ -184,7 +184,7 @@ export function registerAgentIpc(): void {
     async (
       _,
       { taskId }: { taskId: string },
-    ): Promise<IpcResponse<{ events: ScopedAgentEvent[] }>> => {
+    ): Promise<IpcResponse<{ events: ScopedAgentEvent[]; providerId?: string }>> => {
       try {
         const mirror = getAgentTrace(taskId);
         if (!mirror) {
@@ -221,7 +221,10 @@ export function registerAgentIpc(): void {
           return evt;
         });
 
-        return { success: true, data: { events: trimmedEvents } };
+        return {
+          success: true,
+          data: { events: trimmedEvents, providerId: mirror.providerId || undefined },
+        };
       } catch (error) {
         return {
           success: false,

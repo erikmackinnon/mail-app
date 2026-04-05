@@ -3,7 +3,7 @@ import { useAppStore } from "../store";
 import { useExtensionPanels, ExtensionPanelSlot } from "../extensions";
 import { AgentTabContent } from "./AgentPanel";
 import type { ScopedAgentEvent } from "../../shared/agent-types";
-import { deriveReplayProviderIds } from "../utils/agent-trace";
+import { deriveReplayProviderIds, selectReplayFallbackProviderId } from "../utils/agent-trace";
 
 // SVG icon components for sidebar tabs
 function PersonIcon({ active }: { active: boolean }) {
@@ -241,7 +241,7 @@ export const EmailPreviewSidebar = memo(function EmailPreviewSidebar() {
       agent: {
         getTrace: (
           taskId: string,
-        ) => Promise<{ success: boolean; data?: { events: ScopedAgentEvent[] } }>;
+        ) => Promise<{ success: boolean; data?: { events: ScopedAgentEvent[]; providerId?: string } }>;
       };
     };
 
@@ -261,10 +261,13 @@ export const EmailPreviewSidebar = memo(function EmailPreviewSidebar() {
           loadedTraceRef.current = taskId;
 
           // Read fresh email data from the store for the synthetic task
-          const email = useAppStore.getState().emails.find((e) => e.id === emailIdSnapshot);
+          const store = useAppStore.getState();
+          const email = store.emails.find((e) => e.id === emailIdSnapshot);
           if (!email) return;
-          const fallbackProviderId =
-            useAppStore.getState().availableProviders[0]?.id || "claude";
+          const fallbackProviderId = selectReplayFallbackProviderId({
+            traceProviderId: result.data.providerId,
+            availableProviderIds: store.availableProviders.map((provider) => provider.id),
+          });
           const providerIds = deriveReplayProviderIds(result.data.events, fallbackProviderId);
 
           // Replay entire trace in a single store update (avoids O(n²) from N appendAgentEvent calls)
