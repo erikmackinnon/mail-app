@@ -6,7 +6,7 @@ import { getConfig } from "./settings.ipc";
 import type { IpcResponse, DashboardEmail } from "../../shared/types";
 import { DEMO_INBOX_EMAILS, DEMO_EXPECTED_ANALYSIS } from "../demo/fake-inbox";
 import { createLogger } from "../services/logger";
-import { normalizeLlmBackend } from "../services/llm-backend";
+import { resolveLlmBackend } from "../services/llm-backend";
 
 const log = createLogger("gmail-ipc");
 
@@ -118,7 +118,7 @@ export function registerGmailIpc(): void {
       try {
         const client = new GmailClient();
         const config = getConfig();
-        const llmBackend = normalizeLlmBackend(config.llmBackend);
+        const llmBackend = resolveLlmBackend(config.llmBackend);
         const hasAnthropicKey = !!(process.env.ANTHROPIC_API_KEY || config.anthropicApiKey);
         const hasLlmAuth =
           llmBackend === "codex"

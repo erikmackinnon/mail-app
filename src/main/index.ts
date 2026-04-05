@@ -295,14 +295,14 @@ const _db = initDatabase();
 
 // Wire up AnthropicService cost tracking
 import { setAnthropicServiceDb } from "./services/anthropic-service";
-import { normalizeLlmBackend } from "./services/llm-backend";
+import { resolveLlmBackend } from "./services/llm-backend";
 setAnthropicServiceDb(_db);
 
 // If no ANTHROPIC_API_KEY in env (e.g. packaged app with no .env), read from stored config
 // so that services using `new Anthropic()` pick it up automatically.
 {
   const config = getConfig();
-  process.env.EXO_LLM_BACKEND = normalizeLlmBackend(config.llmBackend);
+  process.env.EXO_LLM_BACKEND = resolveLlmBackend(config.llmBackend);
   if (!process.env.ANTHROPIC_API_KEY && config.anthropicApiKey) {
     process.env.ANTHROPIC_API_KEY = config.anthropicApiKey;
   }

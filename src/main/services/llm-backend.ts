@@ -6,8 +6,18 @@ export function normalizeLlmBackend(value: unknown): LlmBackend {
   return value === "codex" ? "codex" : DEFAULT_BACKEND;
 }
 
+export function resolveLlmBackend(
+  configuredBackend: unknown,
+  envBackend: unknown = process.env.EXO_LLM_BACKEND,
+): LlmBackend {
+  if (envBackend === "codex" || envBackend === "anthropic") {
+    return envBackend;
+  }
+  return normalizeLlmBackend(configuredBackend);
+}
+
 export function getActiveLlmBackend(): LlmBackend {
-  return normalizeLlmBackend(process.env.EXO_LLM_BACKEND);
+  return resolveLlmBackend(DEFAULT_BACKEND);
 }
 
 export function getDefaultAgentProviderIdForBackend(backend: LlmBackend): "claude" | "codex" {
