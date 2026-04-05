@@ -40,17 +40,17 @@ Last updated: `2026-04-04`
 
 | Stream | Branch | Worktree Path | Status | Scope Summary |
 | --- | --- | --- | --- | --- |
-| PR1: Codex backend + auth | `feature/pr1-codex-backend-auth` | `/home/erik/Development/mail-app-pr1-codex-backend-auth` | `In Progress` | Codex provider backend, auth/config plumbing, IPC/service integration, and safe fallback behavior. |
-| PR2: OpenAI-compatible endpoint backend | `feature/pr2-openai-compatible-backend` | `/home/erik/Development/mail-app-pr2-openai-compatible-backend` | `Planned` | OpenAI-compatible backend provider, endpoint/model mapping, shared abstractions, and compatibility hardening. |
+| PR1: Codex backend + auth | `feature/codex-backend-auth` | `/home/erik/Development/mail-app-worktrees/codex-backend` | `Reviewed/Approved (ready for upstream PR)` | Codex provider backend, auth/config plumbing, IPC/service integration, and safe fallback behavior. |
+| PR2: OpenAI-compatible endpoint backend | `feature/openai-compatible-backend` | `/home/erik/Development/mail-app-worktrees/openai-compatible` | `Reviewed/Approved (ready for upstream PR)` | OpenAI-compatible backend provider, endpoint/model mapping, shared abstractions, and compatibility hardening. |
 
 ### PR1: Codex backend + auth
 
 Test gates:
-- [ ] `npm run test:unit`
-- [ ] `npm run test:integration`
-- [ ] `npm run lint`
-- [ ] `npx tsc --noEmit -p tsconfig.node.json`
-- [ ] `npx tsc --noEmit -p tsconfig.web.json`
+- [x] `npm run test:unit`
+- [ ] `npm run test:integration` (blocked: missing `DISPLAY`/`xvfb` in current environment)
+- [x] `npm run lint`
+- [x] `npx tsc --noEmit -p tsconfig.node.json`
+- [x] `npx tsc --noEmit -p tsconfig.web.json`
 
 PR readiness:
 - [ ] Scope is limited to Codex backend + auth changes.
@@ -62,11 +62,11 @@ PR readiness:
 ### PR2: OpenAI-compatible endpoint backend
 
 Test gates:
-- [ ] `npm run test:unit`
-- [ ] `npm run test:integration`
-- [ ] `npm run lint`
-- [ ] `npx tsc --noEmit -p tsconfig.node.json`
-- [ ] `npx tsc --noEmit -p tsconfig.web.json`
+- [x] `npm run test:unit`
+- [ ] `npm run test:integration` (blocked: missing `DISPLAY`/`xvfb` in current environment)
+- [x] `npm run lint`
+- [x] `npx tsc --noEmit -p tsconfig.node.json`
+- [x] `npx tsc --noEmit -p tsconfig.web.json`
 
 PR readiness:
 - [ ] Scope is limited to OpenAI-compatible backend changes.
