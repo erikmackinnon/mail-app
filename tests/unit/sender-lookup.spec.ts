@@ -25,6 +25,7 @@ const REMINDER_SERVICE_PATTERNS = [
   /mailer-daemon/i,
   /postmaster/i,
 ];
+const MAX_SENDER_FIELD_LEN = 200;
 
 function isReminderService(from: string): boolean {
   return REMINDER_SERVICE_PATTERNS.some((pattern) => pattern.test(from));
@@ -41,6 +42,20 @@ function extractSenderEmail(from: string): string {
 function extractSenderName(from: string): string {
   const match = from.match(/^([^<]+)/);
   return match ? match[1].trim() : from;
+}
+
+function normalizeLookupField(value: string): string {
+  return value
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_SENDER_FIELD_LEN);
+}
+
+function normalizeSenderIdentity(from: string): { name: string; email: string } {
+  const name = normalizeLookupField(extractSenderName(from)) || "Unknown sender";
+  const email = normalizeLookupField(extractSenderEmail(from)) || "unknown@unknown.invalid";
+  return { name, email };
 }
 
 function buildSearchQuery(name: string, email: string): string {
@@ -63,6 +78,65 @@ function buildSearchQuery(name: string, email: string): string {
     return `"${name}" linkedin OR professional`;
   }
   return `"${name}" ${companyName} linkedin OR professional`;
+}
+
+function buildLookupPrompt(senderName: string, senderEmail: string, searchQuery: string): string {
+  return `I received an email from "${senderName}" with email address "${senderEmail}".
+
+Please search the web to find information about who this person is. Look for:
+- Their professional role/title
+- Their company or organization
+- Any relevant background that would help me write a better reply
+
+Search query to start with: ${searchQuery}
+
+After searching, respond with ONLY valid JSON (no markdown):
+{
+  "name": "Full name",
+  "summary": "2-3 sentence summary of who they are",
+  "title": "Their job title if found",
+  "company": "Their company if found",
+  "linkedinUrl": "LinkedIn URL if found"
+}`;
+}
+
+type LookupBackend = "anthropic" | "codex";
+type LookupRequest = {
+  model: string;
+  max_tokens: number;
+  tools?: Array<{ type: string; name: string; max_uses: number }>;
+  messages: Array<{ role: "user"; content: string }>;
+};
+
+function buildLookupRequest(
+  backend: LookupBackend,
+  model: string,
+  senderName: string,
+  senderEmail: string,
+): LookupRequest {
+  const searchQuery = buildSearchQuery(senderName, senderEmail);
+  const request: LookupRequest = {
+    model,
+    max_tokens: 200,
+    messages: [
+      {
+        role: "user",
+        content: buildLookupPrompt(senderName, senderEmail, searchQuery),
+      },
+    ],
+  };
+
+  if (backend !== "codex") {
+    request.tools = [
+      {
+        type: "web_search_20250305",
+        name: "web_search",
+        max_uses: 1,
+      },
+    ];
+  }
+
+  return request;
 }
 
 function stripCitations(text: string): string {
@@ -264,6 +338,21 @@ test.describe("extractSenderName", () => {
 
   test("trims whitespace from name", () => {
     expect(extractSenderName("  Alice   <alice@test.com>")).toBe("Alice");
+  });
+});
+
+test.describe("normalizeSenderIdentity", () => {
+  test("sanitizes control characters and whitespace in malformed sender input", () => {
+    const result = normalizeSenderIdentity("\"\u0000\u0008  ???\n\tName\" <not-an-email>");
+    expect(result.name).toContain("??? Name");
+    expect(result.name).not.toMatch(/[\u0000-\u001f\u007f]/);
+    expect(result.email).toBe("not-an-email");
+  });
+
+  test("falls back when sender value is empty", () => {
+    const result = normalizeSenderIdentity("   ");
+    expect(result.name).toBe("Unknown sender");
+    expect(result.email).toBe("unknown@unknown.invalid");
   });
 });
 
@@ -562,6 +651,18 @@ test.describe("cache key computation", () => {
     const email = "Alice@Example.COM";
     const cacheKey = `profile:${email.toLowerCase()}`;
     expect(cacheKey).toBe("profile:alice@example.com");
+  });
+
+  test("codex lookup request omits anthropic web_search tool config", () => {
+    const req = buildLookupRequest("codex", "gpt-5.4-mini-high", "Alice", "alice@acme.com");
+    expect(req.tools).toBeUndefined();
+    expect(req.messages[0].content).toContain('Search query to start with: "Alice" acme linkedin');
+  });
+
+  test("anthropic lookup request includes web_search tool config", () => {
+    const req = buildLookupRequest("anthropic", "claude-sonnet", "Alice", "alice@acme.com");
+    expect(req.tools).toBeDefined();
+    expect(req.tools?.[0].name).toBe("web_search");
   });
 
   test("cache expiration constant is 7 days in milliseconds", () => {

@@ -24,8 +24,8 @@ const REMINDER_SERVICE_PATTERNS = [
 ];
 const PROFILE_CACHE_MS = 7 * 24 * 60 * 60 * 1000;
 const FAILURE_RETRY_MS = 15 * 60 * 1000;
-const CODEX_BACKEND_SUMMARY =
-  "Web lookup is unavailable while LLM backend is set to Codex. Switch Settings -> LLM backend to Anthropic to enable sender web search.";
+const MAX_SENDER_FIELD_LEN = 200;
+const LOOKUP_CALLER = "web-search-sender-lookup";
 
 /**
  * Check if an email address looks like a reminder/automated service
@@ -51,6 +51,20 @@ function extractSenderEmail(from: string): string {
 function extractSenderName(from: string): string {
   const match = from.match(/^([^<]+)/);
   return match ? match[1].trim() : from;
+}
+
+function normalizeLookupField(value: string): string {
+  return value
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_SENDER_FIELD_LEN);
+}
+
+function normalizeSenderIdentity(from: string): { name: string; email: string } {
+  const name = normalizeLookupField(extractSenderName(from)) || "Unknown sender";
+  const email = normalizeLookupField(extractSenderEmail(from)) || "unknown@unknown.invalid";
+  return { name, email };
 }
 
 /**
@@ -221,6 +235,63 @@ function buildUnavailableProfile(
   };
 }
 
+function buildLookupPrompt(senderName: string, senderEmail: string, searchQuery: string): string {
+  return `I received an email from "${senderName}" with email address "${senderEmail}".
+
+Please search the web to find information about who this person is. Look for:
+- Their professional role/title
+- Their company or organization
+- Any relevant background that would help me write a better reply
+
+Search query to start with: ${searchQuery}
+
+After searching, respond with ONLY valid JSON (no markdown):
+{
+  "name": "Full name",
+  "summary": "2-3 sentence summary of who they are",
+  "title": "Their job title if found",
+  "company": "Their company if found",
+  "linkedinUrl": "LinkedIn URL if found"
+}
+
+If you can't find specific information, return:
+{
+  "name": "${senderName}",
+  "summary": "No public information found for this person."
+}`;
+}
+
+function buildLookupRequest(
+  backend: LlmBackend,
+  model: string,
+  senderName: string,
+  senderEmail: string,
+  searchQuery: string,
+): Parameters<typeof createMessage>[0] {
+  const baseRequest: Parameters<typeof createMessage>[0] = {
+    model,
+    max_tokens: 200, // Responses are ~100 tokens
+    messages: [
+      {
+        role: "user",
+        content: buildLookupPrompt(senderName, senderEmail, searchQuery),
+      },
+    ],
+  };
+
+  if (backend !== "codex") {
+    baseRequest.tools = [
+      {
+        type: "web_search_20250305",
+        name: "web_search",
+        max_uses: 1,
+      },
+    ];
+  }
+
+  return baseRequest;
+}
+
 /**
  * Create the web search enrichment provider
  */
@@ -270,7 +341,10 @@ export function createWebSearchProvider(
         }
       }
 
-      const senderName = extractSenderName(realSenderFrom);
+      const normalized = normalizeSenderIdentity(realSenderFrom);
+      const senderName = normalized.name;
+      realSenderEmail = normalized.email;
+
       context.logger.info(`Looking up sender: ${senderName} (${realSenderEmail})`);
 
       // Check cache first
@@ -289,70 +363,12 @@ export function createWebSearchProvider(
         }
       }
 
-      if (getBackend() === "codex") {
-        context.logger.warn(
-          `Skipping live web lookup for ${realSenderEmail}: backend=codex does not support web_search tool`,
-        );
-        const unavailableProfile = buildUnavailableProfile(
-          realSenderEmail,
-          senderName,
-          isReminder,
-          CODEX_BACKEND_SUMMARY,
-          now(),
-        );
-        return {
-          extensionId: "web-search",
-          panelId: "sender-profile",
-          data: unavailableProfile as unknown as Record<string, unknown>,
-          expiresAt: now() + FAILURE_RETRY_MS,
-        };
-      }
-
       try {
-        // Use Claude with web search to find information
+        const backend = getBackend();
         const searchQuery = buildSearchQuery(senderName, realSenderEmail);
-
         const response = await createMessageFn(
-          {
-            model: getModelId(),
-            max_tokens: 200, // Responses are ~100 tokens
-            tools: [
-              {
-                type: "web_search_20250305",
-                name: "web_search",
-                max_uses: 1, // 1 search is usually enough
-              },
-            ],
-            messages: [
-              {
-                role: "user",
-                content: `I received an email from "${senderName}" with email address "${realSenderEmail}".
-
-Please search the web to find information about who this person is. Look for:
-- Their professional role/title
-- Their company or organization
-- Any relevant background that would help me write a better reply
-
-Search query to start with: ${searchQuery}
-
-After searching, respond with ONLY valid JSON (no markdown):
-{
-  "name": "Full name",
-  "summary": "2-3 sentence summary of who they are",
-  "title": "Their job title if found",
-  "company": "Their company if found",
-  "linkedinUrl": "LinkedIn URL if found"
-}
-
-If you can't find specific information, return:
-{
-  "name": "${senderName}",
-  "summary": "No public information found for this person."
-}`,
-              },
-            ],
-          },
-          { caller: "web-search-sender-lookup" },
+          buildLookupRequest(backend, getModelId(), senderName, realSenderEmail, searchQuery),
+          { caller: LOOKUP_CALLER },
         );
 
         // Extract the text response
