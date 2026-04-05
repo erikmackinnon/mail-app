@@ -1,10 +1,11 @@
 import { createMessage } from "../../../main/services/llm-service";
+import { getActiveLlmBackend } from "../../../main/services/llm-backend";
 import type {
   ExtensionContext,
   EnrichmentProvider,
   EnrichmentData,
 } from "../../../shared/extension-types";
-import type { DashboardEmail } from "../../../shared/types";
+import type { DashboardEmail, LlmBackend } from "../../../shared/types";
 
 // Known reminder/automated service patterns
 const REMINDER_SERVICE_PATTERNS = [
@@ -21,6 +22,10 @@ const REMINDER_SERVICE_PATTERNS = [
   /mailer-daemon/i,
   /postmaster/i,
 ];
+const PROFILE_CACHE_MS = 7 * 24 * 60 * 60 * 1000;
+const FAILURE_RETRY_MS = 15 * 60 * 1000;
+const CODEX_BACKEND_SUMMARY =
+  "Web lookup is unavailable while LLM backend is set to Codex. Switch Settings -> LLM backend to Anthropic to enable sender web search.";
 
 /**
  * Check if an email address looks like a reminder/automated service
@@ -33,8 +38,11 @@ function isReminderService(from: string): boolean {
  * Extract sender email from "from" field
  */
 function extractSenderEmail(from: string): string {
-  const match = from.match(/<([^>]+)>/);
-  return match ? match[1] : from;
+  const angleBracketMatch = from.match(/<([^>]+)>/);
+  if (angleBracketMatch) return angleBracketMatch[1].trim().toLowerCase();
+  const emailMatch = from.match(/([^\s<]+@[^\s>]+)/);
+  if (emailMatch) return emailMatch[1].trim().toLowerCase();
+  return from.trim().toLowerCase();
 }
 
 /**
@@ -49,7 +57,7 @@ function extractSenderName(from: string): string {
  * Build an effective search query for the sender
  */
 function buildSearchQuery(name: string, email: string): string {
-  const domain = email.split("@")[1];
+  const domain = email.split("@")[1]?.toLowerCase();
   const isPersonalEmail = [
     "gmail.com",
     "yahoo.com",
@@ -57,13 +65,16 @@ function buildSearchQuery(name: string, email: string): string {
     "outlook.com",
     "icloud.com",
     "me.com",
-  ].includes(domain);
+  ].includes(domain ?? "");
 
-  if (isPersonalEmail) {
+  if (!domain || isPersonalEmail) {
     return `"${name}" linkedin OR professional`;
   }
 
-  const companyName = domain.split(".")[0];
+  const companyName = domain.split(".")[0]?.trim();
+  if (!companyName) {
+    return `"${name}" linkedin OR professional`;
+  }
   return `"${name}" ${companyName} linkedin OR professional`;
 }
 
@@ -76,6 +87,12 @@ export interface SenderProfileData {
   title?: string;
   lookupAt: number;
   isReminder: boolean;
+}
+
+interface WebSearchProviderDeps {
+  createMessageFn?: typeof createMessage;
+  getBackend?: () => LlmBackend;
+  now?: () => number;
 }
 
 /**
@@ -176,13 +193,46 @@ function validateProfileData(
   };
 }
 
+function formatError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.stack ? `${error.message} (${error.stack})` : error.message;
+  }
+  if (typeof error === "string") return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+function buildUnavailableProfile(
+  email: string,
+  name: string,
+  isReminder: boolean,
+  summary: string,
+  now: number,
+): SenderProfileData {
+  return {
+    email,
+    name,
+    summary,
+    lookupAt: now,
+    isReminder,
+  };
+}
+
 /**
  * Create the web search enrichment provider
  */
 export function createWebSearchProvider(
   context: ExtensionContext,
   getModelId: () => string,
+  deps: WebSearchProviderDeps = {},
 ): EnrichmentProvider {
+  const createMessageFn = deps.createMessageFn ?? createMessage;
+  const getBackend = deps.getBackend ?? getActiveLlmBackend;
+  const now = deps.now ?? Date.now;
+
   return {
     id: "sender-lookup",
     panelId: "sender-profile",
@@ -228,8 +278,8 @@ export function createWebSearchProvider(
       const cached = await context.storage.get<SenderProfileData>(cacheKey);
       if (cached) {
         // Check if cache is still valid (7 days)
-        const cacheAge = Date.now() - cached.lookupAt;
-        if (cacheAge < 7 * 24 * 60 * 60 * 1000) {
+        const cacheAge = now() - cached.lookupAt;
+        if (cacheAge < PROFILE_CACHE_MS) {
           context.logger.debug(`Cache hit for ${realSenderEmail}`);
           return {
             extensionId: "web-search",
@@ -239,11 +289,30 @@ export function createWebSearchProvider(
         }
       }
 
+      if (getBackend() === "codex") {
+        context.logger.warn(
+          `Skipping live web lookup for ${realSenderEmail}: backend=codex does not support web_search tool`,
+        );
+        const unavailableProfile = buildUnavailableProfile(
+          realSenderEmail,
+          senderName,
+          isReminder,
+          CODEX_BACKEND_SUMMARY,
+          now(),
+        );
+        return {
+          extensionId: "web-search",
+          panelId: "sender-profile",
+          data: unavailableProfile as unknown as Record<string, unknown>,
+          expiresAt: now() + FAILURE_RETRY_MS,
+        };
+      }
+
       try {
         // Use Claude with web search to find information
         const searchQuery = buildSearchQuery(senderName, realSenderEmail);
 
-        const response = await createMessage(
+        const response = await createMessageFn(
           {
             model: getModelId(),
             max_tokens: 200, // Responses are ~100 tokens
@@ -304,7 +373,7 @@ If you can't find specific information, return:
           linkedinUrl: profileData.linkedinUrl,
           company: profileData.company,
           title: profileData.title,
-          lookupAt: Date.now(),
+          lookupAt: now(),
           isReminder,
         };
 
@@ -316,11 +385,25 @@ If you can't find specific information, return:
           extensionId: "web-search",
           panelId: "sender-profile",
           data: profile as unknown as Record<string, unknown>,
-          expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
+          expiresAt: now() + PROFILE_CACHE_MS, // 7 days
         };
       } catch (error) {
-        context.logger.error(`Failed to look up ${realSenderEmail}:`, error);
-        return null;
+        const details = formatError(error);
+        context.logger.error(`Failed to look up ${realSenderEmail}: ${details}`);
+
+        const unavailableProfile = buildUnavailableProfile(
+          realSenderEmail,
+          senderName,
+          isReminder,
+          "Could not complete sender lookup. Check LLM authentication/settings, then try again.",
+          now(),
+        );
+        return {
+          extensionId: "web-search",
+          panelId: "sender-profile",
+          data: unavailableProfile as unknown as Record<string, unknown>,
+          expiresAt: now() + FAILURE_RETRY_MS,
+        };
       }
     },
   };

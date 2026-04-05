@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import { useAppStore } from "../store";
 import type { ScopedAgentEvent, AgentTaskState, AgentTaskInfo } from "../../shared/agent-types";
 import { AgentConfirmationDialog } from "./AgentConfirmationDialog";
+import { hasRenderableTimelineEvents } from "./agent-timeline-utils";
 import { trackEvent } from "../services/posthog";
 
 function StatusChip({ status }: { status: AgentTaskState }) {
@@ -446,6 +447,8 @@ interface EventTimelineProps {
 }
 
 function EventTimeline({ events, runFinished, onAuthRequest, onRetry }: EventTimelineProps) {
+  const shouldShowRunningPlaceholder = !runFinished && !hasRenderableTimelineEvents(events);
+
   const renderedElements: React.ReactNode[] = [];
   let textBuffer: ScopedAgentEvent[] = [];
   const toolResults = new Map<string, unknown>();
@@ -571,6 +574,17 @@ function EventTimeline({ events, runFinished, onAuthRequest, onRetry }: EventTim
   }
 
   flushText();
+
+  if (shouldShowRunningPlaceholder && renderedElements.length === 0) {
+    renderedElements.push(
+      <div
+        key="agent-running-placeholder"
+        className="px-3 py-2 bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-500 dark:text-gray-400"
+      >
+        Agent is running. Waiting for response...
+      </div>,
+    );
+  }
 
   return <div className="space-y-2">{renderedElements}</div>;
 }

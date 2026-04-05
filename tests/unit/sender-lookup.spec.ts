@@ -31,8 +31,11 @@ function isReminderService(from: string): boolean {
 }
 
 function extractSenderEmail(from: string): string {
-  const match = from.match(/<([^>]+)>/);
-  return match ? match[1] : from;
+  const angleBracketMatch = from.match(/<([^>]+)>/);
+  if (angleBracketMatch) return angleBracketMatch[1].trim().toLowerCase();
+  const emailMatch = from.match(/([^\s<]+@[^\s>]+)/);
+  if (emailMatch) return emailMatch[1].trim().toLowerCase();
+  return from.trim().toLowerCase();
 }
 
 function extractSenderName(from: string): string {
@@ -41,7 +44,7 @@ function extractSenderName(from: string): string {
 }
 
 function buildSearchQuery(name: string, email: string): string {
-  const domain = email.split("@")[1];
+  const domain = email.split("@")[1]?.toLowerCase();
   const isPersonalEmail = [
     "gmail.com",
     "yahoo.com",
@@ -49,13 +52,16 @@ function buildSearchQuery(name: string, email: string): string {
     "outlook.com",
     "icloud.com",
     "me.com",
-  ].includes(domain);
+  ].includes(domain ?? "");
 
-  if (isPersonalEmail) {
+  if (!domain || isPersonalEmail) {
     return `"${name}" linkedin OR professional`;
   }
 
-  const companyName = domain.split(".")[0];
+  const companyName = domain.split(".")[0]?.trim();
+  if (!companyName) {
+    return `"${name}" linkedin OR professional`;
+  }
   return `"${name}" ${companyName} linkedin OR professional`;
 }
 
@@ -233,6 +239,14 @@ test.describe("extractSenderEmail", () => {
   test("handles empty display name", () => {
     expect(extractSenderEmail("<bob@test.com>")).toBe("bob@test.com");
   });
+
+  test("extracts inline email when no angle brackets are present", () => {
+    expect(extractSenderEmail("John from Acme john@acme.com")).toBe("john@acme.com");
+  });
+
+  test("normalizes malformed sender strings to lowercase without throwing", () => {
+    expect(extractSenderEmail("John Doe")).toBe("john doe");
+  });
 });
 
 // =============================================================================
@@ -284,6 +298,11 @@ test.describe("buildSearchQuery", () => {
   test("treats outlook as personal email", () => {
     const query = buildSearchQuery("Carol", "carol@outlook.com");
     expect(query).not.toContain("outlook");
+  });
+
+  test("falls back to a generic query when email has no domain", () => {
+    const query = buildSearchQuery("John Doe", "john doe");
+    expect(query).toBe('"John Doe" linkedin OR professional');
   });
 });
 
